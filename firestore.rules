@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /artifacts/{appId}/public/data/{questionCollection}/{uid} {
+
+      // Un joueur peut lire uniquement son propre document
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Écriture autorisée UNE SEULE FOIS par UID (anti-triche serveur)
+      allow create: if request.auth != null
+                    && request.auth.uid == uid
+                    && !exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/$(questionCollection)/$(uid))
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.joueur is string
+                    && request.resource.data.joueur.size() > 0
+                    && request.resource.data.reponse is string
+                    && request.resource.data.reponse.size() > 0
+                    && request.resource.data.questionId is int
+                    && request.resource.data.timestamp is int;
+
+      // Modification et suppression interdites pour tous
+      allow update, delete: if false;
+    }
+
+    // Toutes les autres collections : accès refusé
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
