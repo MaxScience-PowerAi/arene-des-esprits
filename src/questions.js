@@ -406,12 +406,25 @@ export const getQuestionsForToday = () => {
   const OFFSETS = [0, 17, 34, 51, 68];
 
   const pools = [POOL_1, POOL_2, POOL_3, POOL_4, POOL_5];
+  // Points aléatoires 1-5 différents chaque jour
+  const shufflePoints = (seed) => {
+    const pts = [1, 2, 3, 4, 5];
+    let s = seed;
+    for (let i = pts.length - 1; i > 0; i--) {
+      s = (s * 1664525 + 1013904223) & 0xffffffff;
+      const j = Math.abs(s) % (i + 1);
+      [pts[i], pts[j]] = [pts[j], pts[i]];
+    }
+    return pts;
+  };
+  const pointsToday = shufflePoints(dayOfYear);
+
   const timeSlots = [
-    { start: 8, end: 10, points: 1 },
-    { start: 10, end: 12, points: 2 },
-    { start: 12, end: 14, points: 4 },
-    { start: 14, end: 16, points: 7 },
-    { start: 16, end: 18, points: 15 },
+    { start: 8, end: 10 },
+    { start: 10, end: 12 },
+    { start: 12, end: 14 },
+    { start: 14, end: 16 },
+    { start: 16, end: 18 },
   ];
 
   return pools.map((pool, i) => {
@@ -421,7 +434,7 @@ export const getQuestionsForToday = () => {
       id: i + 1,
       start: timeSlots[i].start,
       end: timeSlots[i].end,
-      points: timeSlots[i].points,
+      points: pointsToday[i],
     };
   });
 };

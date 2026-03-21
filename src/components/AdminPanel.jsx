@@ -23,14 +23,12 @@ const AdminPanel = ({ currentHour }) => {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfMsg, setPdfMsg] = useState('');
   const autoReportDoneRef = useRef(false);
-  const unsubscribeRefs = useRef({});
 
   useEffect(() => {
     const liveQ = QUESTIONS_DU_JOUR.find(q => currentHour >= q.start && currentHour < q.end);
     if (liveQ) setSelectedQId(liveQ.id);
   }, [currentHour]);
 
-  // ── Auto PDF à 20h ──
   useEffect(() => {
     if (!isAuthenticated) return;
     if (currentHour >= 20 && !autoReportDoneRef.current) {
@@ -55,7 +53,6 @@ const AdminPanel = ({ currentHour }) => {
     } else { setError(true); setPassword(''); }
   };
 
-  // ── Chargement des users ──
   useEffect(() => {
     if (!isAuthenticated) return;
     const usersRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users`);
@@ -68,10 +65,9 @@ const AdminPanel = ({ currentHour }) => {
     return () => unsub();
   }, [isAuthenticated]);
 
-  // ── Chargement de TOUTES les 5 questions en temps réel ──
+  // Charge TOUTES les 5 questions en meme temps
   useEffect(() => {
     if (!isAuthenticated) return;
-    // On écoute les 5 collections en même temps
     const unsubs = QUESTIONS_DU_JOUR.map(q => {
       const qRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${q.id}`);
       const qSnap = query(qRef, orderBy('timestamp', 'desc'));
@@ -87,7 +83,7 @@ const AdminPanel = ({ currentHour }) => {
     try {
       await deleteDoc(doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users/${uid}`));
       setDeleteConfirm(null);
-      setDeleteMsg('Combattant supprimé avec succès.');
+      setDeleteMsg('Combattant supprime avec succes.');
       setTimeout(() => setDeleteMsg(''), 3000);
     } catch { setDeleteMsg('Erreur lors de la suppression.'); setTimeout(() => setDeleteMsg(''), 3000); }
   };
@@ -108,17 +104,13 @@ const AdminPanel = ({ currentHour }) => {
       try { await deleteDoc(doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users/${dupe.id}`)); count++; } catch { }
     }
     setDuplicatesFound([]); setDuplicateScanDone(false);
-    setDeleteMsg(`${count} doublon(s) supprimé(s) avec succès.`); setTimeout(() => setDeleteMsg(''), 4000);
+    setDeleteMsg(`${count} doublon(s) supprimes.`); setTimeout(() => setDeleteMsg(''), 4000);
   };
 
-  // ══════════════════════════════════════════════════════
-  //   GÉNÉRATION PDF — VERSION CORRIGÉE
-  // ══════════════════════════════════════════════════════
   const generateDailyPDF = async (isAuto = false) => {
     setPdfLoading(true);
-    setPdfMsg(isAuto ? 'Génération automatique du rapport 20h...' : 'Génération du rapport PDF...');
+    setPdfMsg(isAuto ? 'Generation automatique du rapport 20h...' : 'Generation du rapport PDF...');
     try {
-      // Charger jsPDF si pas déjà chargé
       if (!window.jspdf) {
         await new Promise((resolve, reject) => {
           const s = document.createElement('script');
@@ -127,31 +119,18 @@ const AdminPanel = ({ currentHour }) => {
           document.head.appendChild(s);
         });
       }
-
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const PW = 210, PH = 297, ML = 15, MR = 15, MT = 12;
+      const CW = PW - ML - MR;
 
-      // ── Constantes layout ──
-      const PW = 210, PH = 297;
-      const ML = 15, MR = 15, MT = 12;
-      const CW = PW - ML - MR; // 180mm de largeur utile
-
-      // ── Couleurs ──
       const C = {
-        bg: [3, 4, 14],
-        card: [13, 20, 40],
-        card2: [20, 30, 55],
-        border: [30, 41, 70],
-        red: [220, 50, 80],
-        gold: [234, 179, 8],
-        cyan: [34, 211, 238],
-        green: [16, 185, 129],
-        white: [241, 245, 249],
-        muted: [100, 116, 139],
-        dark: [3, 4, 14],
+        bg: [3, 4, 14], card: [13, 20, 40], card2: [20, 30, 55],
+        border: [30, 41, 70], red: [220, 50, 80], gold: [234, 179, 8],
+        cyan: [34, 211, 238], green: [16, 185, 129], white: [241, 245, 249],
+        muted: [100, 116, 139], dark: [3, 4, 14],
       };
 
-      // ── Helpers ──
       const F = (c) => pdf.setFillColor(...c);
       const S = (c) => pdf.setDrawColor(...c);
       const T = (c) => pdf.setTextColor(...c);
@@ -160,133 +139,93 @@ const AdminPanel = ({ currentHour }) => {
       const I = (sz) => { pdf.setFont('helvetica', 'italic'); pdf.setFontSize(sz); };
 
       const fillPage = () => { F(C.bg); pdf.rect(0, 0, PW, PH, 'F'); };
+      const topBand = () => { F(C.red); pdf.rect(0, 0, PW, 4, 'F'); F(C.gold); pdf.rect(0, 4, PW, 1, 'F'); };
+      const botBand = () => { F(C.gold); pdf.rect(0, PH - 5, PW, 1, 'F'); F(C.red); pdf.rect(0, PH - 4, PW, 4, 'F'); };
 
-      const topBand = () => {
-        F(C.red); pdf.rect(0, 0, PW, 4, 'F');
-        F(C.gold); pdf.rect(0, 4, PW, 1, 'F');
-      };
-
-      const botBand = () => {
-        F(C.gold); pdf.rect(0, PH - 5, PW, 1, 'F');
-        F(C.red); pdf.rect(0, PH - 4, PW, 4, 'F');
-      };
-
-      // Boîte colorée avec coins arrondis
       const box = (x, y, w, h, r, fill, strokeC, lw = 0.4) => {
         if (fill) { F(fill); pdf.roundedRect(x, y, w, h, r, r, 'F'); }
         if (strokeC) { S(strokeC); pdf.setLineWidth(lw); pdf.roundedRect(x, y, w, h, r, r, 'S'); }
       };
-
-      // Accent gauche vertical
       const leftBar = (x, y, h, c) => { F(c); pdf.rect(x, y, 2.5, h, 'F'); };
-
-      // Ligne horizontale
       const hline = (y, c = [30, 41, 70], lw = 0.3) => { S(c); pdf.setLineWidth(lw); pdf.line(ML, y, PW - MR, y); };
-
-      // Difficulté → couleur
       const diffC = (d) => ({ Facile: C.green, Moyen: C.cyan, Difficile: C.gold, Expert: C.red, Boss: [220, 38, 38] }[d] || C.muted);
 
-      // ── Fonction clé : écrire du texte dans une boîte avec wrapping correct ──
-      // Retourne la hauteur réelle utilisée
+      // Boite avec texte qui wrappe automatiquement — retourne la hauteur utilisee
       const textBox = (text, x, y, maxW, bgColor, strokeColor, accentColor, opts = {}) => {
-        const { fontSize = 9, textColor = C.white, bold: isBold = false, padding = 5, lineH = 5.5 } = opts;
+        const { fontSize = 9, textColor = C.white, isBold = false, padding = 5, lineH = 5.5 } = opts;
         if (isBold) B(fontSize); else N(fontSize);
-        const lines = pdf.splitTextToSize(String(text || ''), maxW - padding * 2);
+        const usableW = maxW - padding * 2 - (accentColor ? 3 : 0);
+        const lines = pdf.splitTextToSize(String(text || '—').replace(/\n/g, ' '), usableW);
         const h = lines.length * lineH + padding * 2;
         box(x, y, maxW, h, 3, bgColor, strokeColor);
         if (accentColor) leftBar(x, y, h, accentColor);
         T(textColor);
         if (isBold) B(fontSize); else N(fontSize);
-        pdf.text(lines, x + (accentColor ? padding + 1 : padding), y + padding + lineH * 0.7);
+        pdf.text(lines, x + (accentColor ? padding + 2 : padding), y + padding + lineH * 0.8);
         return h;
       };
 
-      // Infos globales
-      const today = new Date().toLocaleDateString('fr-FR', {
-        timeZone: 'Africa/Douala', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-      });
+      const today = new Date().toLocaleDateString('fr-FR', { timeZone: 'Africa/Douala', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
       const dateFile = new Date().toLocaleDateString('fr-FR', { timeZone: 'Africa/Douala' }).replace(/\//g, '-');
       const totalParts = QUESTIONS_DU_JOUR.reduce((s, q) => s + (answersByQId[q.id]?.length || 0), 0);
 
-      // ══════════════════════════
-      //   PAGE 1 — COUVERTURE
-      // ══════════════════════════
+      // PAGE 1 COUVERTURE
       fillPage(); topBand();
-
       let y = 22;
 
-      // Logo cercle
       box(PW / 2 - 18, y, 36, 36, 18, C.card, C.red, 0.8);
       T(C.red); B(14); pdf.text('AoM', PW / 2, y + 20, { align: 'center' });
       y += 44;
-
-      // Titre
       T(C.white); B(20); pdf.text('THE ARENA OF MINDS', PW / 2, y, { align: 'center' });
-      y += 7;
-      T(C.muted); N(8); pdf.text('L O G I C   ·   M A T H S   ·   M Y S T E R I E S', PW / 2, y, { align: 'center' });
+      y += 7; T(C.muted); N(8); pdf.text('L O G I C   .   M A T H S   .   M Y S T E R I E S', PW / 2, y, { align: 'center' });
       y += 10;
-
-      // Ligne déco
       S(C.red); pdf.setLineWidth(0.5); pdf.line(ML + 25, y, PW - MR - 25, y);
-      S(C.gold); pdf.setLineWidth(0.3); pdf.line(ML + 40, y + 1.5, PW - MR - 40, y + 1.5);
       y += 10;
-
-      // Badge récapitulatif
       box(ML + 20, y - 5, CW - 40, 14, 3, C.card, C.cyan, 0.4);
-      T(C.cyan); B(9); pdf.text('RÉCAPITULATIF JOURNALIER', PW / 2, y + 4, { align: 'center' });
+      T(C.cyan); B(9); pdf.text('RECAPITULATIF JOURNALIER', PW / 2, y + 4, { align: 'center' });
       y += 18;
-
-      // Date
       T(C.white); B(14);
       pdf.text(today.charAt(0).toUpperCase() + today.slice(1), PW / 2, y, { align: 'center' });
       y += 16;
 
       // 3 cartes stats
       const statW = (CW - 8) / 3;
-      [[C.red, '5', 'ÉNIGMES'], [C.cyan, String(totalParts), 'PARTICIPATIONS'], [C.gold, String(users.length), 'COMBATTANTS']].forEach(([c, v, l], i) => {
+      [[C.red, '5', 'ENIGMES'], [C.cyan, String(totalParts), 'PARTICIPATIONS'], [C.gold, String(users.length), 'COMBATTANTS']].forEach(([c, v, l], i) => {
         const sx = ML + i * (statW + 4);
         box(sx, y, statW, 26, 3, C.card2, c, 0.5); leftBar(sx, y, 26, c);
         T(c); B(18); pdf.text(v, sx + statW / 2 + 1, y + 13, { align: 'center' });
         T(C.muted); N(7); pdf.text(l, sx + statW / 2 + 1, y + 21, { align: 'center' });
       });
-      y += 34;
+      y += 34; hline(y); y += 8;
 
-      hline(y); y += 8;
-
-      // Aperçu 5 questions
-      T(C.gold); B(9); pdf.text('APERÇU DES QUESTIONS DU JOUR', ML, y); y += 7;
+      // Apercu questions — colonne reponse limitee et wrappee
+      T(C.gold); B(9); pdf.text('APERCU DES QUESTIONS DU JOUR', ML, y); y += 7;
 
       QUESTIONS_DU_JOUR.forEach((q, qi) => {
         const qd = getLocalizedQuestionData(q);
         const dc = diffC(qd.difficulty);
         const nbAns = answersByQId[q.id]?.length || 0;
-        const rowH = 13;
-        box(ML, y, CW, rowH, 2, qi % 2 === 0 ? C.card : C.card2, null); leftBar(ML, y, rowH, dc);
+        const rh = 13;
+        box(ML, y, CW, rh, 2, qi % 2 === 0 ? C.card : C.card2, null); leftBar(ML, y, rh, dc);
         T(dc); B(9); pdf.text(`#${q.id}`, ML + 5, y + 8.5);
-        T(C.muted); N(7); pdf.text(`${q.start}h–${q.end}h`, ML + 15, y + 5); pdf.text(`${q.points}pts`, ML + 15, y + 10.5);
-        T(C.white); B(7.5); pdf.text((qd.displayCategory || '').substring(0, 16), ML + 34, y + 8.5);
-        box(ML + 84, y + 3, 22, 7, 1.5, dc, null);
-        T(C.dark); B(6); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), ML + 95, y + 8, { align: 'center' });
+        T(C.muted); N(7); pdf.text(`${q.start}h-${q.end}h`, ML + 15, y + 5); pdf.text(`${q.points}pts`, ML + 15, y + 10.5);
+        T(C.white); B(7.5); pdf.text((qd.displayCategory || '').substring(0, 14), ML + 34, y + 8.5);
+        box(ML + 82, y + 3, 24, 7, 1.5, dc, null);
+        T(C.dark); B(6); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), ML + 94, y + 8, { align: 'center' });
         T(C.green); B(10); pdf.text(String(nbAns), ML + 117, y + 8, { align: 'center' });
-        T(C.muted); N(6); pdf.text('réponses', ML + 117, y + 11.5, { align: 'center' });
-        // Réponse tronquée
-        T(C.cyan); N(6.5);
-        const shortAns = (qd.displayAnswer || '').substring(0, 45);
-        pdf.text('→ ' + shortAns, ML + 132, y + 8.5);
-        y += rowH + 2;
+        T(C.muted); N(6); pdf.text('rep.', ML + 117, y + 11.5, { align: 'center' });
+        // Reponse tronquee proprement — max 25 chars pour ne pas deborder
+        const shortAns = (qd.displayAnswer || '—').replace(/\n/g, ' ').substring(0, 25);
+        T(C.cyan); N(6.5); pdf.text('> ' + shortAns, ML + 132, y + 8.5);
+        y += rh + 2;
       });
 
       y += 4; hline(y); y += 6;
       T(C.muted); I(7);
-      pdf.text('Rapport généré automatiquement — The Arena of Minds', PW / 2, y, { align: 'center' });
-      y += 4;
-      pdf.text('Pages suivantes : détail complet de chaque question et liste des combattants.', PW / 2, y, { align: 'center' });
-
+      pdf.text('Rapport genere automatiquement — The Arena of Minds', PW / 2, y, { align: 'center' });
       botBand();
 
-      // ══════════════════════════════════════
-      //   PAGES 2–6 : DÉTAIL PAR QUESTION
-      // ══════════════════════════════════════
+      // PAGES DETAIL PAR QUESTION
       for (const q of QUESTIONS_DU_JOUR) {
         const qd = getLocalizedQuestionData(q);
         const answers = answersByQId[q.id] || [];
@@ -295,107 +234,84 @@ const AdminPanel = ({ currentHour }) => {
         pdf.addPage(); fillPage(); topBand(); botBand();
         let py = MT + 2;
 
-        // ── En-tête ──
         box(ML, py, CW, 15, 3, C.red, null); leftBar(ML, py, 15, C.gold);
-        T(C.white); B(12); pdf.text(`ÉNIGME ${q.id}  —  ${q.start}H00 à ${q.end}H00`, ML + 5, py + 10);
+        T(C.white); B(12); pdf.text(`ENIGME ${q.id}  —  ${q.start}H00 a ${q.end}H00`, ML + 5, py + 10);
         box(PW - MR - 27, py + 3, 23, 9, 2, dc, null);
         T(C.dark); B(6.5); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), PW - MR - 15, py + 9, { align: 'center' });
         py += 20;
 
-        // ── Méta ──
         box(ML, py, CW, 9, 2, C.card2, null);
         T(C.muted); N(7);
-        pdf.text(`Catégorie : ${qd.displayCategory || ''}`, ML + 4, py + 6);
-        pdf.text(`Points : ${q.points}`, ML + 70, py + 6);
-        pdf.text(`Participations : ${answers.length}`, ML + 95, py + 6);
-        pdf.text(`Créneau : ${q.start}h – ${q.end}h`, ML + 145, py + 6);
+        pdf.text(`Cat. : ${(qd.displayCategory || '').substring(0, 20)}`, ML + 4, py + 6);
+        pdf.text(`Points : ${q.points}`, ML + 80, py + 6);
+        pdf.text(`Participations : ${answers.length}`, ML + 110, py + 6);
         py += 14;
 
-        // ── Énoncé ──
-        T(C.cyan); B(8); pdf.text('ÉNONCÉ', ML, py); py += 5;
+        // Enonce — texte wrappe automatiquement
+        T(C.cyan); B(8); pdf.text('ENONCE', ML, py); py += 5;
         const qH = textBox(qd.displayText, ML, py, CW, C.card, C.cyan, C.cyan, { fontSize: 9, textColor: C.white, lineH: 5.5, padding: 5 });
         py += qH + 7;
 
-        // ── Réponse correcte ──
-        T(C.green); B(8); pdf.text('RÉPONSE CORRECTE', ML, py); py += 5;
-        const aH = textBox(qd.displayAnswer, ML, py, CW, [8, 35, 25], C.green, C.green, { fontSize: 9, textColor: C.green, bold: true, lineH: 5.5, padding: 5 });
+        // Reponse correcte — texte wrappe automatiquement
+        T(C.green); B(8); pdf.text('REPONSE CORRECTE', ML, py); py += 5;
+        const aH = textBox(qd.displayAnswer, ML, py, CW, [8, 35, 25], C.green, C.green, { fontSize: 9, textColor: C.green, isBold: true, lineH: 5.5, padding: 5 });
         py += aH + 8;
 
-        // ── Tableau réponses ──
+        // Tableau reponses
         if (answers.length === 0) {
           box(ML, py, CW, 12, 3, C.card2, C.border, 0.3);
-          T(C.muted); I(8); pdf.text('Aucune participation enregistrée pour cette question.', PW / 2, py + 8, { align: 'center' });
+          T(C.muted); I(8); pdf.text('Aucune participation enregistree.', PW / 2, py + 8, { align: 'center' });
           py += 16;
         } else {
-          T(C.white); B(8);
-          pdf.text(`RÉPONSES — ${answers.length} participation${answers.length > 1 ? 's' : ''}`, ML, py);
-          py += 6;
-
-          // En-tête tableau
+          T(C.white); B(8); pdf.text(`REPONSES — ${answers.length} participation${answers.length > 1 ? 's' : ''}`, ML, py); py += 6;
           box(ML, py, CW, 8, 2, C.border, null);
           T(C.muted); B(6.5);
-          pdf.text('N°', ML + 2, py + 5.5);
-          pdf.text('HEURE', ML + 10, py + 5.5);
-          pdf.text('JOUEUR', ML + 28, py + 5.5);
-          pdf.text('RÉPONSE SOUMISE', ML + 90, py + 5.5);
+          pdf.text('N', ML + 2, py + 5.5); pdf.text('HEURE', ML + 10, py + 5.5);
+          pdf.text('JOUEUR', ML + 28, py + 5.5); pdf.text('REPONSE', ML + 90, py + 5.5);
           py += 8;
 
           for (let ai = 0; ai < answers.length; ai++) {
             const ans = answers[ai];
-
-            // Calcul de la hauteur de la ligne (réponse peut être longue)
             N(7);
-            const repLines = pdf.splitTextToSize(String(ans.reponse || '—'), CW - 90 - 4);
-            const rowH = Math.max(7, repLines.length * 5 + 3);
+            // Calcule la hauteur de ligne selon la longueur de la reponse
+            const repLines = pdf.splitTextToSize(String(ans.reponse || '—').replace(/\n/g, ' '), CW - 90 - 6);
+            const rh = Math.max(7.5, repLines.length * 5 + 3);
 
-            // Saut de page si besoin
-            if (py + rowH > PH - 14) {
+            if (py + rh > PH - 14) {
               botBand(); pdf.addPage(); fillPage(); topBand(); botBand(); py = MT + 2;
-              box(ML, py, CW, 12, 3, C.red, null);
-              T(C.white); B(9); pdf.text(`ÉNIGME ${q.id} — Suite (${ai + 1}/${answers.length})`, ML + 4, py + 8);
-              py += 17;
-              box(ML, py, CW, 8, 2, C.border, null);
-              T(C.muted); B(6.5);
-              pdf.text('N°', ML + 2, py + 5.5); pdf.text('HEURE', ML + 10, py + 5.5);
-              pdf.text('JOUEUR', ML + 28, py + 5.5); pdf.text('RÉPONSE SOUMISE', ML + 90, py + 5.5);
+              box(ML, py, CW, 10, 2, C.red, null);
+              T(C.white); B(9); pdf.text(`ENIGME ${q.id} — Suite (${ai + 1}/${answers.length})`, ML + 4, py + 7);
+              py += 16;
+              box(ML, py, CW, 8, 2, C.border, null); T(C.muted); B(6.5);
+              pdf.text('N', ML + 2, py + 5.5); pdf.text('HEURE', ML + 10, py + 5.5);
+              pdf.text('JOUEUR', ML + 28, py + 5.5); pdf.text('REPONSE', ML + 90, py + 5.5);
               py += 8;
             }
 
-            box(ML, py, CW, rowH, 1, ai % 2 === 0 ? C.card : C.card2, null);
-
+            box(ML, py, CW, rh, 1, ai % 2 === 0 ? C.card : C.card2, null);
             const heure = new Date(ans.timestamp).toLocaleTimeString('fr-FR', { timeZone: 'Africa/Douala', hour: '2-digit', minute: '2-digit' });
-            const joueur = String(ans.joueur || '—').substring(0, 24);
-
-            T(C.muted); N(6.5); pdf.text(String(ai + 1), ML + 2, py + rowH / 2 + 1.5);
-            T(C.gold); N(7); pdf.text(heure, ML + 10, py + rowH / 2 + 1.5);
-            T(C.white); B(7); pdf.text(joueur, ML + 28, py + rowH / 2 + 1.5);
-
-            // Réponse avec wrapping
-            T(C.cyan); N(7);
-            pdf.text(repLines, ML + 90, py + 4);
-
-            py += rowH;
+            T(C.muted); N(6.5); pdf.text(String(ai + 1), ML + 2, py + rh / 2 + 1.5);
+            T(C.gold); N(7); pdf.text(heure, ML + 10, py + rh / 2 + 1.5);
+            T(C.white); B(7); pdf.text(String(ans.joueur || '—').substring(0, 22), ML + 28, py + rh / 2 + 1.5);
+            T(C.cyan); N(7); pdf.text(repLines, ML + 90, py + 4);
+            py += rh;
           }
         }
 
-        // ── Mini barre stats en bas ──
         if (py + 13 < PH - 14) {
           py += 5; hline(py, C.border, 0.3); py += 5;
           box(ML, py, CW, 11, 2, C.card, C.border, 0.3);
-          T(C.muted); N(7); pdf.text(`Énigme ${q.id}/5`, ML + 4, py + 7.5);
+          T(C.muted); N(7); pdf.text(`Enigme ${q.id}/5`, ML + 4, py + 7.5);
           T(dc); B(7); pdf.text(qd.difficulty, ML + 35, py + 7.5);
-          T(C.green); B(8); pdf.text(`${answers.length} réponse${answers.length > 1 ? 's' : ''}`, ML + 70, py + 7.5);
+          T(C.green); B(8); pdf.text(`${answers.length} rep.`, ML + 70, py + 7.5);
           T(C.gold); B(8); pdf.text(`${q.points} pt${q.points > 1 ? 's' : ''}`, ML + 110, py + 7.5);
-          T(C.muted); N(7); pdf.text(`${q.start}h–${q.end}h`, ML + 148, py + 7.5);
+          T(C.muted); N(7); pdf.text(`${q.start}h-${q.end}h`, ML + 148, py + 7.5);
         }
       }
 
-      // ══════════════════════════════════════
-      //   PAGE FINALE — COMBATTANTS
-      // ══════════════════════════════════════
+      // PAGE FINALE COMBATTANTS
       pdf.addPage(); fillPage(); topBand(); botBand();
       let fp = MT + 2;
-
       box(ML, fp, CW, 15, 3, [30, 20, 5], C.gold, 0.6); leftBar(ML, fp, 15, C.gold);
       T(C.gold); B(11); pdf.text('COMBATTANTS INSCRITS', ML + 5, fp + 10);
       T(C.white); N(8); pdf.text(`${users.length} au total`, PW - MR - 4, fp + 10, { align: 'right' });
@@ -405,35 +321,26 @@ const AdminPanel = ({ currentHour }) => {
         box(ML, fp, CW, 12, 3, C.card2, C.border, 0.3);
         T(C.muted); I(8); pdf.text('Aucun combattant inscrit.', PW / 2, fp + 8, { align: 'center' });
       } else {
-        // En-tête
-        box(ML, fp, CW, 8, 2, C.border, null);
-        T(C.muted); B(6.5);
-        pdf.text('N°', ML + 2, fp + 5.5);
-        pdf.text('NOM COMPLET', ML + 12, fp + 5.5);
-        pdf.text('PSEUDO', ML + 65, fp + 5.5);
-        pdf.text('WHATSAPP', ML + 105, fp + 5.5);
-        pdf.text('VILLE', ML + 148, fp + 5.5);
+        box(ML, fp, CW, 8, 2, C.border, null); T(C.muted); B(6.5);
+        pdf.text('N', ML + 2, fp + 5.5); pdf.text('NOM', ML + 12, fp + 5.5);
+        pdf.text('PSEUDO', ML + 65, fp + 5.5); pdf.text('WHATSAPP', ML + 105, fp + 5.5); pdf.text('VILLE', ML + 148, fp + 5.5);
         fp += 8;
 
         for (let ui = 0; ui < users.length; ui++) {
           const u = users[ui];
           const rh = 7.5;
-
           if (fp + rh > PH - 14) {
             botBand(); pdf.addPage(); fillPage(); topBand(); botBand(); fp = MT + 2;
-            box(ML, fp, CW, 10, 2, C.gold, null);
-            T(C.dark); B(8); pdf.text(`COMBATTANTS — Suite (${ui + 1}/${users.length})`, ML + 4, fp + 7);
-            fp += 15;
-            box(ML, fp, CW, 8, 2, C.border, null);
-            T(C.muted); B(6.5);
-            pdf.text('N°', ML + 2, fp + 5.5); pdf.text('NOM COMPLET', ML + 12, fp + 5.5);
+            box(ML, fp, CW, 10, 2, C.gold, null); T(C.dark); B(8);
+            pdf.text(`COMBATTANTS — Suite`, ML + 4, fp + 7); fp += 15;
+            box(ML, fp, CW, 8, 2, C.border, null); T(C.muted); B(6.5);
+            pdf.text('N', ML + 2, fp + 5.5); pdf.text('NOM', ML + 12, fp + 5.5);
             pdf.text('PSEUDO', ML + 65, fp + 5.5); pdf.text('WHATSAPP', ML + 105, fp + 5.5); pdf.text('VILLE', ML + 148, fp + 5.5);
             fp += 8;
           }
-
           box(ML, fp, CW, rh, 1, ui % 2 === 0 ? C.card : C.card2, null);
           T(C.muted); N(6.5); pdf.text(String(ui + 1), ML + 2, fp + 5);
-          T(C.white); B(7); pdf.text(String(u.name || '—').substring(0, 24).toUpperCase(), ML + 12, fp + 5);
+          T(C.white); B(7); pdf.text(String(u.name || '—').substring(0, 22).toUpperCase(), ML + 12, fp + 5);
           T(C.cyan); N(7); pdf.text(String(u.pseudo || '—').substring(0, 16), ML + 65, fp + 5);
           T(C.green); N(7); pdf.text(String(u.phone || '—').substring(0, 16), ML + 105, fp + 5);
           T(C.muted); N(7); pdf.text(String(u.city || '—').substring(0, 14), ML + 148, fp + 5);
@@ -441,22 +348,18 @@ const AdminPanel = ({ currentHour }) => {
         }
       }
 
-      // ── Sauvegarde ──
       pdf.save(`ArenaOfMinds_Rapport_${dateFile}.pdf`);
-      setPdfMsg(isAuto ? '✓ Rapport 20h généré !' : '✓ Rapport PDF téléchargé !');
+      setPdfMsg(isAuto ? 'Rapport 20h genere !' : 'Rapport PDF telecharge !');
       setTimeout(() => setPdfMsg(''), 5000);
 
     } catch (err) {
       console.error('PDF error:', err);
-      setPdfMsg('Erreur génération PDF. Vérifiez la console.');
+      setPdfMsg('Erreur generation PDF.');
       setTimeout(() => setPdfMsg(''), 5000);
     }
     setPdfLoading(false);
   };
 
-  // ══════════════════════════
-  //   HELPERS CSV
-  // ══════════════════════════
   const activeQuestionDetails = getLocalizedQuestionData(QUESTIONS_DU_JOUR.find(q => q.id === selectedQId));
   const currentQAnswers = answersByQId[selectedQId] || [];
   const isCurrentlyLive = activeQuestionDetails && currentHour >= activeQuestionDetails.start && currentHour < activeQuestionDetails.end;
@@ -487,9 +390,6 @@ const AdminPanel = ({ currentHour }) => {
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
-  // ══════════════════════════
-  //   RENDU
-  // ══════════════════════════
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#03040E] flex flex-col items-center justify-center p-4">
@@ -509,7 +409,6 @@ const AdminPanel = ({ currentHour }) => {
   return (
     <div className="min-h-screen bg-[#03040E] text-[#F1F5F9] font-body flex flex-col lg:flex-row">
 
-      {/* Modal suppression */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
           <div className="bg-[#0a0f1e] border border-arena-danger/50 rounded-2xl p-6 max-w-sm w-full text-center">
@@ -525,27 +424,23 @@ const AdminPanel = ({ currentHour }) => {
         </div>
       )}
 
-      {/* Notification PDF */}
       {pdfMsg && (
         <div className="fixed top-4 right-4 z-50 bg-[#0a1528] border border-arena-secondary/50 text-arena-secondary px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-3 shadow-xl">
           <FileText className="w-4 h-4" /> {pdfMsg}
         </div>
       )}
 
-      {/* Sidebar */}
       <div className="w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-arena-border bg-[#050812] flex flex-col shrink-0">
         <div className="p-6 border-b border-arena-border flex items-center gap-3">
           <LayoutDashboard className="w-6 h-6 text-arena-danger" />
           <h1 className="font-display font-bold uppercase tracking-wider">{t('admin_panel_title')}</h1>
         </div>
-
         <div className="flex border-b border-arena-border">
           <button onClick={() => setActiveTab('reponses')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'reponses' ? 'text-white bg-arena-danger/10 border-b-2 border-arena-danger' : 'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>{t('admin_tab_answers')}</button>
           <button onClick={() => setActiveTab('joueurs')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'joueurs' ? 'text-white bg-arena-secondary/10 border-b-2 border-arena-secondary' : 'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>
             {t('admin_tab_players')} <span className="ml-1 opacity-50">({users.length})</span>
           </button>
         </div>
-
         <div className="p-4 flex-1 overflow-y-auto flex flex-col">
           {activeTab === 'reponses' ? (
             <div className="flex flex-col flex-1">
@@ -562,7 +457,7 @@ const AdminPanel = ({ currentHour }) => {
                         <span className="font-mono font-bold text-lg opacity-50">#{q.id}</span>
                         <div>
                           <span className="font-medium block">{q.start}h - {q.end}h</span>
-                          <span className="text-xs opacity-50">{nbAns} réponse{nbAns > 1 ? 's' : ''}</span>
+                          <span className="text-xs opacity-50">{nbAns} rep. · {q.points}pt{q.points > 1 ? 's' : ''}</span>
                         </div>
                       </div>
                       {isLive && <div className="w-2 h-2 rounded-full bg-arena-success shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
@@ -570,16 +465,14 @@ const AdminPanel = ({ currentHour }) => {
                   );
                 })}
               </div>
-
-              {/* Bouton PDF */}
               <div className="mt-auto pt-6 space-y-2">
                 <button onClick={() => generateDailyPDF(false)} disabled={pdfLoading}
                   className="w-full flex items-center justify-center gap-2 bg-arena-danger/10 hover:bg-arena-danger/20 border border-arena-danger/50 disabled:opacity-50 disabled:cursor-not-allowed text-arena-danger px-4 py-3 rounded-xl transition-colors text-xs font-bold uppercase tracking-widest">
                   <FileText className="w-4 h-4" />
-                  {pdfLoading ? 'Génération...' : 'Rapport PDF journalier'}
+                  {pdfLoading ? 'Generation...' : 'Rapport PDF journalier'}
                 </button>
                 <p className={`text-xs text-center ${currentHour >= 20 ? 'text-arena-success' : 'text-arena-textMuted opacity-50'}`}>
-                  {currentHour >= 20 ? '✓ Rapport auto 20h activé' : 'Auto-génération à 20h00'}
+                  {currentHour >= 20 ? 'Rapport auto 20h active' : 'Auto-generation a 20h00'}
                 </p>
               </div>
             </div>
@@ -590,7 +483,6 @@ const AdminPanel = ({ currentHour }) => {
             </div>
           )}
         </div>
-
         <div className="p-4 border-t border-arena-border">
           <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-arena-textMuted hover:text-arena-danger transition-colors text-sm w-full p-2">
             <LogOut className="w-4 h-4" /> {t('admin_logout')}
@@ -598,15 +490,13 @@ const AdminPanel = ({ currentHour }) => {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 p-4 lg:p-8 h-screen overflow-y-auto w-full">
-
         {activeTab === 'reponses' && activeQuestionDetails && (
           <div className="max-w-6xl mx-auto space-y-6">
             <div className="glass-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <div className="flex items-center gap-3 mb-2">
-                  <h2 className="text-2xl font-display font-bold uppercase tracking-wider">Énigme {activeQuestionDetails.id}</h2>
+                  <h2 className="text-2xl font-display font-bold uppercase tracking-wider">Enigme {activeQuestionDetails.id}</h2>
                   {isCurrentlyLive ? (
                     <span className="bg-arena-success/20 text-arena-success border border-arena-success/50 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest animate-pulse">{t('admin_quest_live')}</span>
                   ) : (
@@ -656,7 +546,6 @@ const AdminPanel = ({ currentHour }) => {
                   <CheckCircle2 className={`w-10 h-10 ${currentQAnswers.length > 0 ? 'text-arena-success opacity-50' : 'text-arena-textMuted opacity-20'}`} />
                 </div>
               </div>
-
               <div className="lg:col-span-2">
                 <div className="glass-card rounded-2xl overflow-hidden h-full min-h-[400px] flex flex-col">
                   <div className="p-4 border-b border-arena-border bg-[#050812]">
@@ -714,7 +603,7 @@ const AdminPanel = ({ currentHour }) => {
               <div className="flex gap-3 w-full md:w-auto flex-wrap">
                 <button onClick={detectDuplicates} disabled={scanLoading || users.length === 0}
                   className="flex items-center justify-center gap-2 bg-arena-gold/10 hover:bg-arena-gold/20 border border-arena-gold/40 disabled:opacity-40 disabled:cursor-not-allowed text-arena-gold px-5 py-3 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest">
-                  <AlertTriangle className="w-4 h-4" />{scanLoading ? 'Scan...' : 'Détecter doublons'}
+                  <AlertTriangle className="w-4 h-4" />{scanLoading ? 'Scan...' : 'Detecter doublons'}
                 </button>
                 <button onClick={exportUsersToCSV} disabled={users.length === 0}
                   className="flex items-center justify-center gap-2 bg-arena-secondary hover:bg-cyan-500 disabled:bg-arena-border disabled:text-arena-textMuted disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest">
@@ -728,24 +617,24 @@ const AdminPanel = ({ currentHour }) => {
                 {duplicatesFound.length === 0 ? (
                   <div className="flex items-center gap-3 text-arena-success">
                     <ShieldCheck className="w-5 h-5" />
-                    <span className="font-bold text-sm uppercase tracking-widest">Aucun doublon — base de données propre !</span>
+                    <span className="font-bold text-sm uppercase tracking-widest">Aucun doublon — base de donnees propre !</span>
                   </div>
                 ) : (
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-3 text-arena-danger">
                         <AlertTriangle className="w-5 h-5" />
-                        <span className="font-bold text-sm uppercase tracking-widest">{duplicatesFound.length} doublon(s) détecté(s)</span>
+                        <span className="font-bold text-sm uppercase tracking-widest">{duplicatesFound.length} doublon(s) detecte(s)</span>
                       </div>
                       <button onClick={removeAllDuplicates} className="bg-arena-danger hover:bg-rose-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2">
-                        <Trash2 className="w-3 h-3" /> Supprimer tous les doublons
+                        <Trash2 className="w-3 h-3" /> Supprimer tous
                       </button>
                     </div>
                     <div className="space-y-2">
                       {duplicatesFound.map(d => (
                         <div key={d.id} className="bg-arena-danger/10 border border-arena-danger/20 rounded-lg px-4 py-2 text-sm flex items-center justify-between">
                           <span className="text-white font-bold">{d.name}</span>
-                          <span className="text-arena-textMuted font-mono text-xs">{d.phone} · {d.email}</span>
+                          <span className="text-arena-textMuted font-mono text-xs">{d.phone}</span>
                           <span className="text-arena-danger text-xs uppercase tracking-widest">Doublon</span>
                         </div>
                       ))}
