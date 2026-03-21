@@ -215,8 +215,8 @@ const AdminPanel = ({ currentHour }) => {
         T(C.green); B(10); pdf.text(String(nbAns), ML + 117, y + 8, { align: 'center' });
         T(C.muted); N(6); pdf.text('rep.', ML + 117, y + 11.5, { align: 'center' });
         // Reponse tronquee proprement — max 25 chars pour ne pas deborder
-        const shortAns = (qd.displayAnswer || '—').replace(/\n/g, ' ').substring(0, 25);
-        T(C.cyan); N(6.5); pdf.text('> ' + shortAns, ML + 132, y + 8.5);
+        const shortAns = pdf.splitTextToSize('→ ' + (qd.displayAnswer || ''), CW - 132);
+        T(C.cyan); N(6.5); pdf.text(shortAns[0] || '', ML + 132, y + 8.5);
         y += rh + 2;
       });
 
