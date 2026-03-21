@@ -23,6 +23,7 @@ const AdminPanel = ({ currentHour }) => {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfMsg, setPdfMsg] = useState('');
   const autoReportDoneRef = useRef(false);
+  const unsubscribeRefs = useRef({});
 
   useEffect(() => {
     const liveQ = QUESTIONS_DU_JOUR.find(q => currentHour >= q.start && currentHour < q.end);
@@ -54,6 +55,7 @@ const AdminPanel = ({ currentHour }) => {
     } else { setError(true); setPassword(''); }
   };
 
+  // ── Chargement des users ──
   useEffect(() => {
     if (!isAuthenticated) return;
     const usersRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users`);
@@ -66,17 +68,20 @@ const AdminPanel = ({ currentHour }) => {
     return () => unsub();
   }, [isAuthenticated]);
 
+  // ── Chargement de TOUTES les 5 questions en temps réel ──
   useEffect(() => {
     if (!isAuthenticated) return;
-    setAnswersByQId(prev => ({ ...prev, [selectedQId]: [] }));
-    const qRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${selectedQId}`);
-    const qSnap = query(qRef, orderBy('timestamp', 'desc'));
-    const unsub = onSnapshot(qSnap, (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAnswersByQId(prev => ({ ...prev, [selectedQId]: docs }));
+    // On écoute les 5 collections en même temps
+    const unsubs = QUESTIONS_DU_JOUR.map(q => {
+      const qRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${q.id}`);
+      const qSnap = query(qRef, orderBy('timestamp', 'desc'));
+      return onSnapshot(qSnap, (snapshot) => {
+        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setAnswersByQId(prev => ({ ...prev, [q.id]: docs }));
+      });
     });
-    return () => unsub();
-  }, [isAuthenticated, selectedQId]);
+    return () => unsubs.forEach(u => u());
+  }, [isAuthenticated]);
 
   const handleDeletePlayer = async (uid) => {
     try {
@@ -106,13 +111,14 @@ const AdminPanel = ({ currentHour }) => {
     setDeleteMsg(`${count} doublon(s) supprimé(s) avec succès.`); setTimeout(() => setDeleteMsg(''), 4000);
   };
 
-  // ──────────────────────────────────────────────
-  //  GÉNÉRATION PDF RÉCAPITULATIF JOURNALIER
-  // ──────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════
+  //   GÉNÉRATION PDF — VERSION CORRIGÉE
+  // ══════════════════════════════════════════════════════
   const generateDailyPDF = async (isAuto = false) => {
     setPdfLoading(true);
     setPdfMsg(isAuto ? 'Génération automatique du rapport 20h...' : 'Génération du rapport PDF...');
     try {
+      // Charger jsPDF si pas déjà chargé
       if (!window.jspdf) {
         await new Promise((resolve, reject) => {
           const s = document.createElement('script');
@@ -121,253 +127,336 @@ const AdminPanel = ({ currentHour }) => {
           document.head.appendChild(s);
         });
       }
+
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const W = 210, H = 297, M = 14, CW = W - M * 2;
 
+      // ── Constantes layout ──
+      const PW = 210, PH = 297;
+      const ML = 15, MR = 15, MT = 12;
+      const CW = PW - ML - MR; // 180mm de largeur utile
+
+      // ── Couleurs ──
+      const C = {
+        bg: [3, 4, 14],
+        card: [13, 20, 40],
+        card2: [20, 30, 55],
+        border: [30, 41, 70],
+        red: [220, 50, 80],
+        gold: [234, 179, 8],
+        cyan: [34, 211, 238],
+        green: [16, 185, 129],
+        white: [241, 245, 249],
+        muted: [100, 116, 139],
+        dark: [3, 4, 14],
+      };
+
+      // ── Helpers ──
+      const F = (c) => pdf.setFillColor(...c);
+      const S = (c) => pdf.setDrawColor(...c);
+      const T = (c) => pdf.setTextColor(...c);
+      const B = (sz) => { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(sz); };
+      const N = (sz) => { pdf.setFont('helvetica', 'normal'); pdf.setFontSize(sz); };
+      const I = (sz) => { pdf.setFont('helvetica', 'italic'); pdf.setFontSize(sz); };
+
+      const fillPage = () => { F(C.bg); pdf.rect(0, 0, PW, PH, 'F'); };
+
+      const topBand = () => {
+        F(C.red); pdf.rect(0, 0, PW, 4, 'F');
+        F(C.gold); pdf.rect(0, 4, PW, 1, 'F');
+      };
+
+      const botBand = () => {
+        F(C.gold); pdf.rect(0, PH - 5, PW, 1, 'F');
+        F(C.red); pdf.rect(0, PH - 4, PW, 4, 'F');
+      };
+
+      // Boîte colorée avec coins arrondis
+      const box = (x, y, w, h, r, fill, strokeC, lw = 0.4) => {
+        if (fill) { F(fill); pdf.roundedRect(x, y, w, h, r, r, 'F'); }
+        if (strokeC) { S(strokeC); pdf.setLineWidth(lw); pdf.roundedRect(x, y, w, h, r, r, 'S'); }
+      };
+
+      // Accent gauche vertical
+      const leftBar = (x, y, h, c) => { F(c); pdf.rect(x, y, 2.5, h, 'F'); };
+
+      // Ligne horizontale
+      const hline = (y, c = [30, 41, 70], lw = 0.3) => { S(c); pdf.setLineWidth(lw); pdf.line(ML, y, PW - MR, y); };
+
+      // Difficulté → couleur
+      const diffC = (d) => ({ Facile: C.green, Moyen: C.cyan, Difficile: C.gold, Expert: C.red, Boss: [220, 38, 38] }[d] || C.muted);
+
+      // ── Fonction clé : écrire du texte dans une boîte avec wrapping correct ──
+      // Retourne la hauteur réelle utilisée
+      const textBox = (text, x, y, maxW, bgColor, strokeColor, accentColor, opts = {}) => {
+        const { fontSize = 9, textColor = C.white, bold: isBold = false, padding = 5, lineH = 5.5 } = opts;
+        if (isBold) B(fontSize); else N(fontSize);
+        const lines = pdf.splitTextToSize(String(text || ''), maxW - padding * 2);
+        const h = lines.length * lineH + padding * 2;
+        box(x, y, maxW, h, 3, bgColor, strokeColor);
+        if (accentColor) leftBar(x, y, h, accentColor);
+        T(textColor);
+        if (isBold) B(fontSize); else N(fontSize);
+        pdf.text(lines, x + (accentColor ? padding + 1 : padding), y + padding + lineH * 0.7);
+        return h;
+      };
+
+      // Infos globales
       const today = new Date().toLocaleDateString('fr-FR', {
         timeZone: 'Africa/Douala', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
       });
       const dateFile = new Date().toLocaleDateString('fr-FR', { timeZone: 'Africa/Douala' }).replace(/\//g, '-');
       const totalParts = QUESTIONS_DU_JOUR.reduce((s, q) => s + (answersByQId[q.id]?.length || 0), 0);
 
-      const rgb = (r, g, b) => ({ r, g, b });
-      const DARK = rgb(3, 4, 14);
-      const CARD = rgb(13, 20, 40);
-      const CARD2 = rgb(20, 30, 55);
-      const BORDER = rgb(30, 41, 70);
-      const RED = rgb(220, 50, 80);
-      const GOLD = rgb(234, 179, 8);
-      const CYAN = rgb(34, 211, 238);
-      const GREEN = rgb(16, 185, 129);
-      const WHITE = rgb(241, 245, 249);
-      const MUTED = rgb(100, 116, 139);
-
-      const fill = (c) => pdf.setFillColor(c.r, c.g, c.b);
-      const stroke = (c) => pdf.setDrawColor(c.r, c.g, c.b);
-      const color = (c) => pdf.setTextColor(c.r, c.g, c.b);
-      const bold = (sz) => { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(sz); };
-      const norm = (sz) => { pdf.setFont('helvetica', 'normal'); pdf.setFontSize(sz); };
-      const italic = (sz) => { pdf.setFont('helvetica', 'italic'); pdf.setFontSize(sz); };
-
-      const fillPage = () => { fill(DARK); pdf.rect(0, 0, W, H, 'F'); };
-      const topBand = () => { fill(RED); pdf.rect(0, 0, W, 4, 'F'); fill(GOLD); pdf.rect(0, 4, W, 1, 'F'); };
-      const botBand = () => { fill(GOLD); pdf.rect(0, H - 5, W, 1, 'F'); fill(RED); pdf.rect(0, H - 4, W, 4, 'F'); };
-      const rFill = (x, y, w, h, r, c) => { fill(c); pdf.roundedRect(x, y, w, h, r, r, 'F'); };
-      const rStroke = (x, y, w, h, r, c, lw = 0.4) => { stroke(c); pdf.setLineWidth(lw); pdf.roundedRect(x, y, w, h, r, r, 'S'); };
-      const accent = (x, y, h, c) => { fill(c); pdf.rect(x, y, 2.5, h, 'F'); };
-      const hline = (y, c, lw = 0.3) => { stroke(c); pdf.setLineWidth(lw); pdf.line(M, y, W - M, y); };
-      const diffColor = (d) => ({ Facile: GREEN, Moyen: CYAN, Difficile: GOLD, Expert: RED, Boss: rgb(220, 38, 38) }[d] || MUTED);
-
-      // ─── PAGE 1 COUVERTURE ───
+      // ══════════════════════════
+      //   PAGE 1 — COUVERTURE
+      // ══════════════════════════
       fillPage(); topBand();
 
-      // Logo cercle
       let y = 22;
-      rFill(W / 2 - 18, y, 36, 36, 18, CARD);
-      rStroke(W / 2 - 18, y, 36, 36, 18, RED, 0.8);
-      color(RED); bold(14); pdf.text('AoM', W / 2, y + 20, { align: 'center' });
 
+      // Logo cercle
+      box(PW / 2 - 18, y, 36, 36, 18, C.card, C.red, 0.8);
+      T(C.red); B(14); pdf.text('AoM', PW / 2, y + 20, { align: 'center' });
       y += 44;
-      color(WHITE); bold(20); pdf.text('THE ARENA OF MINDS', W / 2, y, { align: 'center' });
-      y += 7; color(MUTED); norm(8); pdf.text('L O G I C   ·   M A T H S   ·   M Y S T E R I E S', W / 2, y, { align: 'center' });
 
+      // Titre
+      T(C.white); B(20); pdf.text('THE ARENA OF MINDS', PW / 2, y, { align: 'center' });
+      y += 7;
+      T(C.muted); N(8); pdf.text('L O G I C   ·   M A T H S   ·   M Y S T E R I E S', PW / 2, y, { align: 'center' });
       y += 10;
-      stroke(RED); pdf.setLineWidth(0.5); pdf.line(M + 25, y, W - M - 25, y);
-      stroke(GOLD); pdf.setLineWidth(0.3); pdf.line(M + 40, y + 1.5, W - M - 40, y + 1.5);
 
+      // Ligne déco
+      S(C.red); pdf.setLineWidth(0.5); pdf.line(ML + 25, y, PW - MR - 25, y);
+      S(C.gold); pdf.setLineWidth(0.3); pdf.line(ML + 40, y + 1.5, PW - MR - 40, y + 1.5);
       y += 10;
-      rFill(M + 20, y - 5, CW - 40, 14, 3, CARD); rStroke(M + 20, y - 5, CW - 40, 14, 3, CYAN, 0.4);
-      color(CYAN); bold(9); pdf.text('RÉCAPITULATIF JOURNALIER', W / 2, y + 4, { align: 'center' });
 
+      // Badge récapitulatif
+      box(ML + 20, y - 5, CW - 40, 14, 3, C.card, C.cyan, 0.4);
+      T(C.cyan); B(9); pdf.text('RÉCAPITULATIF JOURNALIER', PW / 2, y + 4, { align: 'center' });
       y += 18;
-      color(WHITE); bold(14);
-      pdf.text((today.charAt(0).toUpperCase() + today.slice(1)), W / 2, y, { align: 'center' });
 
-      // Stats 3 cartes
-      y += 14;
-      const stats = [{ label: 'ÉNIGMES', val: '5', c: RED }, { label: 'PARTICIPATIONS', val: String(totalParts), c: CYAN }, { label: 'COMBATTANTS', val: String(users.length), c: GOLD }];
-      const sw = (CW - 8) / 3;
-      stats.forEach((s, i) => {
-        const sx = M + i * (sw + 4);
-        rFill(sx, y, sw, 26, 3, CARD2); rStroke(sx, y, sw, 26, 3, s.c, 0.5); accent(sx, y, 26, s.c);
-        color(s.c); bold(18); pdf.text(s.val, sx + sw / 2 + 1, y + 13, { align: 'center' });
-        color(MUTED); norm(7); pdf.text(s.label, sx + sw / 2 + 1, y + 21, { align: 'center' });
+      // Date
+      T(C.white); B(14);
+      pdf.text(today.charAt(0).toUpperCase() + today.slice(1), PW / 2, y, { align: 'center' });
+      y += 16;
+
+      // 3 cartes stats
+      const statW = (CW - 8) / 3;
+      [[C.red, '5', 'ÉNIGMES'], [C.cyan, String(totalParts), 'PARTICIPATIONS'], [C.gold, String(users.length), 'COMBATTANTS']].forEach(([c, v, l], i) => {
+        const sx = ML + i * (statW + 4);
+        box(sx, y, statW, 26, 3, C.card2, c, 0.5); leftBar(sx, y, 26, c);
+        T(c); B(18); pdf.text(v, sx + statW / 2 + 1, y + 13, { align: 'center' });
+        T(C.muted); N(7); pdf.text(l, sx + statW / 2 + 1, y + 21, { align: 'center' });
       });
-      y += 34; hline(y, BORDER); y += 8;
+      y += 34;
 
-      // Aperçu questions
-      color(GOLD); bold(9); pdf.text('APERÇU DES QUESTIONS DU JOUR', M, y); y += 7;
+      hline(y); y += 8;
+
+      // Aperçu 5 questions
+      T(C.gold); B(9); pdf.text('APERÇU DES QUESTIONS DU JOUR', ML, y); y += 7;
 
       QUESTIONS_DU_JOUR.forEach((q, qi) => {
         const qd = getLocalizedQuestionData(q);
-        const dc = diffColor(qd.difficulty);
-        const answers = answersByQId[q.id] || [];
-        const rh = 14;
-        rFill(M, y, CW, rh, 2, qi % 2 === 0 ? CARD : CARD2); accent(M, y, rh, dc);
-        color(dc); bold(9); pdf.text(`#${q.id}`, M + 6, y + 8.5);
-        color(MUTED); norm(7.5); pdf.text(`${q.start}h–${q.end}h`, M + 16, y + 5.5); pdf.text(`${q.points}pts`, M + 16, y + 11);
-        color(WHITE); bold(8); pdf.text((qd.displayCategory || '').substring(0, 18), M + 35, y + 8.5);
-        rFill(M + 85, y + 3.5, 22, 7, 1.5, dc);
-        color(DARK); bold(6.5); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), M + 96, y + 8.5, { align: 'center' });
-        color(GREEN); bold(10); pdf.text(String(answers.length), M + 118, y + 8.5, { align: 'center' });
-        color(MUTED); norm(6.5); pdf.text('réponses', M + 118, y + 12, { align: 'center' });
-        color(CYAN); norm(7); pdf.text('→ ' + (qd.displayAnswer || '').substring(0, 38), M + 132, y + 8.5);
-        y += rh + 2;
+        const dc = diffC(qd.difficulty);
+        const nbAns = answersByQId[q.id]?.length || 0;
+        const rowH = 13;
+        box(ML, y, CW, rowH, 2, qi % 2 === 0 ? C.card : C.card2, null); leftBar(ML, y, rowH, dc);
+        T(dc); B(9); pdf.text(`#${q.id}`, ML + 5, y + 8.5);
+        T(C.muted); N(7); pdf.text(`${q.start}h–${q.end}h`, ML + 15, y + 5); pdf.text(`${q.points}pts`, ML + 15, y + 10.5);
+        T(C.white); B(7.5); pdf.text((qd.displayCategory || '').substring(0, 16), ML + 34, y + 8.5);
+        box(ML + 84, y + 3, 22, 7, 1.5, dc, null);
+        T(C.dark); B(6); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), ML + 95, y + 8, { align: 'center' });
+        T(C.green); B(10); pdf.text(String(nbAns), ML + 117, y + 8, { align: 'center' });
+        T(C.muted); N(6); pdf.text('réponses', ML + 117, y + 11.5, { align: 'center' });
+        // Réponse tronquée
+        T(C.cyan); N(6.5);
+        const shortAns = (qd.displayAnswer || '').substring(0, 45);
+        pdf.text('→ ' + shortAns, ML + 132, y + 8.5);
+        y += rowH + 2;
       });
 
-      y += 4; hline(y, BORDER); y += 6;
-      color(MUTED); italic(7);
-      pdf.text('Rapport généré automatiquement — Arena of Minds', W / 2, y, { align: 'center' });
-      y += 4; pdf.text('Les pages suivantes contiennent le détail complet de chaque question.', W / 2, y, { align: 'center' });
+      y += 4; hline(y); y += 6;
+      T(C.muted); I(7);
+      pdf.text('Rapport généré automatiquement — The Arena of Minds', PW / 2, y, { align: 'center' });
+      y += 4;
+      pdf.text('Pages suivantes : détail complet de chaque question et liste des combattants.', PW / 2, y, { align: 'center' });
+
       botBand();
 
-      // ─── PAGES DÉTAIL PAR QUESTION ───
-      QUESTIONS_DU_JOUR.forEach((q) => {
+      // ══════════════════════════════════════
+      //   PAGES 2–6 : DÉTAIL PAR QUESTION
+      // ══════════════════════════════════════
+      for (const q of QUESTIONS_DU_JOUR) {
         const qd = getLocalizedQuestionData(q);
         const answers = answersByQId[q.id] || [];
-        const dc = diffColor(qd.difficulty);
+        const dc = diffC(qd.difficulty);
 
         pdf.addPage(); fillPage(); topBand(); botBand();
-        let py = 14;
+        let py = MT + 2;
 
-        // En-tête question
-        rFill(M, py, CW, 16, 3, RED); accent(M, py, 16, GOLD);
-        color(WHITE); bold(13); pdf.text(`ÉNIGME ${q.id}`, M + 6, py + 10.5);
-        color(WHITE); norm(9); pdf.text(`${q.start}H00 → ${q.end}H00`, M + 50, py + 10.5);
-        rFill(W - M - 28, py + 3, 24, 10, 2, dc);
-        color(DARK); bold(7); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), W - M - 16, py + 9.5, { align: 'center' });
-        py += 22;
+        // ── En-tête ──
+        box(ML, py, CW, 15, 3, C.red, null); leftBar(ML, py, 15, C.gold);
+        T(C.white); B(12); pdf.text(`ÉNIGME ${q.id}  —  ${q.start}H00 à ${q.end}H00`, ML + 5, py + 10);
+        box(PW - MR - 27, py + 3, 23, 9, 2, dc, null);
+        T(C.dark); B(6.5); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), PW - MR - 15, py + 9, { align: 'center' });
+        py += 20;
 
-        // Méta
-        rFill(M, py, CW, 10, 2, CARD2);
-        color(MUTED); norm(7.5);
-        pdf.text(`Catégorie : ${qd.displayCategory}`, M + 4, py + 6.5);
-        pdf.text(`Points : ${q.points}`, M + 70, py + 6.5);
-        pdf.text(`Participations : ${answers.length}`, M + 95, py + 6.5);
-        pdf.text(`Créneau : ${q.start}h – ${q.end}h`, M + 140, py + 6.5);
+        // ── Méta ──
+        box(ML, py, CW, 9, 2, C.card2, null);
+        T(C.muted); N(7);
+        pdf.text(`Catégorie : ${qd.displayCategory || ''}`, ML + 4, py + 6);
+        pdf.text(`Points : ${q.points}`, ML + 70, py + 6);
+        pdf.text(`Participations : ${answers.length}`, ML + 95, py + 6);
+        pdf.text(`Créneau : ${q.start}h – ${q.end}h`, ML + 145, py + 6);
         py += 14;
 
-        // Énoncé
-        color(CYAN); bold(8); pdf.text('ÉNONCÉ DE LA QUESTION', M, py); py += 5;
-        const qlines = pdf.splitTextToSize(qd.displayText, CW - 8);
-        const qboxH = qlines.length * 5.5 + 10;
-        rFill(M, py, CW, qboxH, 3, CARD); rStroke(M, py, CW, qboxH, 3, CYAN, 0.4); accent(M, py, qboxH, CYAN);
-        color(WHITE); norm(9); pdf.text(qlines, M + 6, py + 7);
-        py += qboxH + 6;
+        // ── Énoncé ──
+        T(C.cyan); B(8); pdf.text('ÉNONCÉ', ML, py); py += 5;
+        const qH = textBox(qd.displayText, ML, py, CW, C.card, C.cyan, C.cyan, { fontSize: 9, textColor: C.white, lineH: 5.5, padding: 5 });
+        py += qH + 7;
 
-        // Réponse correcte
-        color(GREEN); bold(8); pdf.text('RÉPONSE CORRECTE', M, py); py += 5;
-        const alines = pdf.splitTextToSize(qd.displayAnswer, CW - 12);
-        const aboxH = alines.length * 5.5 + 10;
-        rFill(M, py, CW, aboxH, 3, rgb(8, 35, 25)); rStroke(M, py, CW, aboxH, 3, GREEN, 0.5); accent(M, py, aboxH, GREEN);
-        fill(GREEN); pdf.circle(M + 7, py + aboxH / 2, 2.5, 'F');
-        color(DARK); bold(8); pdf.text('✓', M + 6.2, py + aboxH / 2 + 2.5);
-        color(GREEN); bold(9); pdf.text(alines, M + 13, py + 7);
-        py += aboxH + 8;
+        // ── Réponse correcte ──
+        T(C.green); B(8); pdf.text('RÉPONSE CORRECTE', ML, py); py += 5;
+        const aH = textBox(qd.displayAnswer, ML, py, CW, [8, 35, 25], C.green, C.green, { fontSize: 9, textColor: C.green, bold: true, lineH: 5.5, padding: 5 });
+        py += aH + 8;
 
-        // Tableau réponses
+        // ── Tableau réponses ──
         if (answers.length === 0) {
-          rFill(M, py, CW, 14, 3, CARD2); rStroke(M, py, CW, 14, 3, BORDER, 0.3);
-          color(MUTED); italic(8.5); pdf.text('Aucune participation enregistrée.', W / 2, py + 9, { align: 'center' });
-          py += 18;
+          box(ML, py, CW, 12, 3, C.card2, C.border, 0.3);
+          T(C.muted); I(8); pdf.text('Aucune participation enregistrée pour cette question.', PW / 2, py + 8, { align: 'center' });
+          py += 16;
         } else {
-          color(WHITE); bold(8); pdf.text(`RÉPONSES DES JOUEURS — ${answers.length} participation${answers.length > 1 ? 's' : ''}`, M, py); py += 6;
-          rFill(M, py, CW, 9, 2, rgb(30, 41, 70));
-          color(MUTED); bold(7);
-          pdf.text('#', M + 3, py + 6); pdf.text('HEURE', M + 10, py + 6); pdf.text('JOUEUR / PSEUDO', M + 30, py + 6); pdf.text('RÉPONSE SOUMISE', M + 100, py + 6);
-          py += 9;
+          T(C.white); B(8);
+          pdf.text(`RÉPONSES — ${answers.length} participation${answers.length > 1 ? 's' : ''}`, ML, py);
+          py += 6;
 
-          const maxRows = Math.min(answers.length, 30);
-          for (let ai = 0; ai < maxRows; ai++) {
+          // En-tête tableau
+          box(ML, py, CW, 8, 2, C.border, null);
+          T(C.muted); B(6.5);
+          pdf.text('N°', ML + 2, py + 5.5);
+          pdf.text('HEURE', ML + 10, py + 5.5);
+          pdf.text('JOUEUR', ML + 28, py + 5.5);
+          pdf.text('RÉPONSE SOUMISE', ML + 90, py + 5.5);
+          py += 8;
+
+          for (let ai = 0; ai < answers.length; ai++) {
             const ans = answers[ai];
-            const rh = 8;
-            if (py + rh > H - 14) {
-              botBand(); pdf.addPage(); fillPage(); topBand(); botBand(); py = 14;
-              rFill(M, py, CW, 10, 2, RED); color(WHITE); bold(9);
-              pdf.text(`ÉNIGME ${q.id} — Suite (${ai + 1}/${answers.length})`, M + 4, py + 7); py += 16;
-              rFill(M, py, CW, 9, 2, rgb(30, 41, 70)); color(MUTED); bold(7);
-              pdf.text('#', M + 3, py + 6); pdf.text('HEURE', M + 10, py + 6); pdf.text('JOUEUR / PSEUDO', M + 30, py + 6); pdf.text('RÉPONSE SOUMISE', M + 100, py + 6); py += 9;
+
+            // Calcul de la hauteur de la ligne (réponse peut être longue)
+            N(7);
+            const repLines = pdf.splitTextToSize(String(ans.reponse || '—'), CW - 90 - 4);
+            const rowH = Math.max(7, repLines.length * 5 + 3);
+
+            // Saut de page si besoin
+            if (py + rowH > PH - 14) {
+              botBand(); pdf.addPage(); fillPage(); topBand(); botBand(); py = MT + 2;
+              box(ML, py, CW, 12, 3, C.red, null);
+              T(C.white); B(9); pdf.text(`ÉNIGME ${q.id} — Suite (${ai + 1}/${answers.length})`, ML + 4, py + 8);
+              py += 17;
+              box(ML, py, CW, 8, 2, C.border, null);
+              T(C.muted); B(6.5);
+              pdf.text('N°', ML + 2, py + 5.5); pdf.text('HEURE', ML + 10, py + 5.5);
+              pdf.text('JOUEUR', ML + 28, py + 5.5); pdf.text('RÉPONSE SOUMISE', ML + 90, py + 5.5);
+              py += 8;
             }
-            rFill(M, py, CW, rh, 1, ai % 2 === 0 ? CARD : CARD2);
+
+            box(ML, py, CW, rowH, 1, ai % 2 === 0 ? C.card : C.card2, null);
+
             const heure = new Date(ans.timestamp).toLocaleTimeString('fr-FR', { timeZone: 'Africa/Douala', hour: '2-digit', minute: '2-digit' });
-            color(MUTED); norm(6.5); pdf.text(String(ai + 1), M + 3, py + 5.5);
-            color(GOLD); norm(7); pdf.text(heure, M + 10, py + 5.5);
-            color(WHITE); bold(7.5); pdf.text((ans.joueur || '—').substring(0, 28), M + 30, py + 5.5);
-            color(CYAN); norm(7); pdf.text((ans.reponse || '—').substring(0, 52), M + 100, py + 5.5);
-            py += rh;
-          }
-          if (answers.length > 30) {
-            py += 3; rFill(M, py, CW, 9, 2, CARD2);
-            color(MUTED); italic(7); pdf.text(`+ ${answers.length - 30} autre(s). Voir export CSV.`, W / 2, py + 6, { align: 'center' }); py += 12;
+            const joueur = String(ans.joueur || '—').substring(0, 24);
+
+            T(C.muted); N(6.5); pdf.text(String(ai + 1), ML + 2, py + rowH / 2 + 1.5);
+            T(C.gold); N(7); pdf.text(heure, ML + 10, py + rowH / 2 + 1.5);
+            T(C.white); B(7); pdf.text(joueur, ML + 28, py + rowH / 2 + 1.5);
+
+            // Réponse avec wrapping
+            T(C.cyan); N(7);
+            pdf.text(repLines, ML + 90, py + 4);
+
+            py += rowH;
           }
         }
 
-        // Mini stats footer question
-        if (py + 20 < H - 20) {
-          py += 4; hline(py, BORDER, 0.3); py += 6;
-          rFill(M, py, CW, 14, 2, CARD); rStroke(M, py, CW, 14, 2, BORDER, 0.3);
-          color(MUTED); norm(7); pdf.text(`Question ${q.id} sur 5`, M + 4, py + 9);
-          color(dc); bold(8); pdf.text(qd.difficulty, M + 40, py + 9);
-          color(GREEN); bold(8); pdf.text(`${answers.length} réponse${answers.length > 1 ? 's' : ''}`, M + 75, py + 9);
-          color(GOLD); bold(8); pdf.text(`${q.points} point${q.points > 1 ? 's' : ''}`, M + 115, py + 9);
-          color(MUTED); norm(7); pdf.text(`${q.start}h – ${q.end}h`, M + 145, py + 9);
-        }
-      });
-
-      // ─── PAGE FINALE COMBATTANTS ───
-      pdf.addPage(); fillPage(); topBand(); botBand();
-      let fp = 14;
-
-      rFill(M, fp, CW, 16, 3, rgb(30, 20, 5)); rStroke(M, fp, CW, 16, 3, GOLD, 0.6); accent(M, fp, 16, GOLD);
-      color(GOLD); bold(12); pdf.text('COMBATTANTS INSCRITS', M + 6, fp + 10.5);
-      color(WHITE); norm(9); pdf.text(`${users.length} au total`, W - M - 4, fp + 10.5, { align: 'right' });
-      fp += 22;
-
-      if (users.length === 0) {
-        rFill(M, fp, CW, 14, 3, CARD2); color(MUTED); italic(8.5); pdf.text('Aucun combattant inscrit.', W / 2, fp + 9, { align: 'center' });
-      } else {
-        rFill(M, fp, CW, 9, 2, rgb(30, 41, 70));
-        color(MUTED); bold(7);
-        pdf.text('#', M + 3, fp + 6); pdf.text('NOM COMPLET', M + 12, fp + 6); pdf.text('PSEUDO', M + 62, fp + 6); pdf.text('WHATSAPP', M + 102, fp + 6); pdf.text('VILLE', M + 142, fp + 6);
-        fp += 9;
-
-        users.slice(0, 55).forEach((u, ui) => {
-          const rh = 7.5;
-          if (fp + rh > H - 14) {
-            botBand(); pdf.addPage(); fillPage(); topBand(); botBand(); fp = 14;
-            rFill(M, fp, CW, 10, 2, GOLD); color(DARK); bold(8);
-            pdf.text(`COMBATTANTS — Suite (${ui + 1}/${users.length})`, M + 4, fp + 7); fp += 16;
-            rFill(M, fp, CW, 9, 2, rgb(30, 41, 70)); color(MUTED); bold(7);
-            pdf.text('#', M + 3, fp + 6); pdf.text('NOM COMPLET', M + 12, fp + 6); pdf.text('PSEUDO', M + 62, fp + 6); pdf.text('WHATSAPP', M + 102, fp + 6); pdf.text('VILLE', M + 142, fp + 6); fp += 9;
-          }
-          rFill(M, fp, CW, rh, 1, ui % 2 === 0 ? CARD : CARD2);
-          color(MUTED); norm(6.5); pdf.text(String(ui + 1), M + 3, fp + 5);
-          color(WHITE); bold(7.5); pdf.text((u.name || '—').substring(0, 22).toUpperCase(), M + 12, fp + 5);
-          color(CYAN); norm(7); pdf.text((u.pseudo || '—').substring(0, 16), M + 62, fp + 5);
-          color(GREEN); norm(7); pdf.text((u.phone || '—').substring(0, 16), M + 102, fp + 5);
-          color(MUTED); norm(7); pdf.text((u.city || '—').substring(0, 16), M + 142, fp + 5);
-          fp += rh;
-        });
-
-        if (users.length > 55) {
-          fp += 3; rFill(M, fp, CW, 9, 2, CARD2);
-          color(MUTED); italic(7); pdf.text(`+ ${users.length - 55} autre(s). Consultez l'export CSV joueurs.`, W / 2, fp + 6, { align: 'center' });
+        // ── Mini barre stats en bas ──
+        if (py + 13 < PH - 14) {
+          py += 5; hline(py, C.border, 0.3); py += 5;
+          box(ML, py, CW, 11, 2, C.card, C.border, 0.3);
+          T(C.muted); N(7); pdf.text(`Énigme ${q.id}/5`, ML + 4, py + 7.5);
+          T(dc); B(7); pdf.text(qd.difficulty, ML + 35, py + 7.5);
+          T(C.green); B(8); pdf.text(`${answers.length} réponse${answers.length > 1 ? 's' : ''}`, ML + 70, py + 7.5);
+          T(C.gold); B(8); pdf.text(`${q.points} pt${q.points > 1 ? 's' : ''}`, ML + 110, py + 7.5);
+          T(C.muted); N(7); pdf.text(`${q.start}h–${q.end}h`, ML + 148, py + 7.5);
         }
       }
 
+      // ══════════════════════════════════════
+      //   PAGE FINALE — COMBATTANTS
+      // ══════════════════════════════════════
+      pdf.addPage(); fillPage(); topBand(); botBand();
+      let fp = MT + 2;
+
+      box(ML, fp, CW, 15, 3, [30, 20, 5], C.gold, 0.6); leftBar(ML, fp, 15, C.gold);
+      T(C.gold); B(11); pdf.text('COMBATTANTS INSCRITS', ML + 5, fp + 10);
+      T(C.white); N(8); pdf.text(`${users.length} au total`, PW - MR - 4, fp + 10, { align: 'right' });
+      fp += 20;
+
+      if (users.length === 0) {
+        box(ML, fp, CW, 12, 3, C.card2, C.border, 0.3);
+        T(C.muted); I(8); pdf.text('Aucun combattant inscrit.', PW / 2, fp + 8, { align: 'center' });
+      } else {
+        // En-tête
+        box(ML, fp, CW, 8, 2, C.border, null);
+        T(C.muted); B(6.5);
+        pdf.text('N°', ML + 2, fp + 5.5);
+        pdf.text('NOM COMPLET', ML + 12, fp + 5.5);
+        pdf.text('PSEUDO', ML + 65, fp + 5.5);
+        pdf.text('WHATSAPP', ML + 105, fp + 5.5);
+        pdf.text('VILLE', ML + 148, fp + 5.5);
+        fp += 8;
+
+        for (let ui = 0; ui < users.length; ui++) {
+          const u = users[ui];
+          const rh = 7.5;
+
+          if (fp + rh > PH - 14) {
+            botBand(); pdf.addPage(); fillPage(); topBand(); botBand(); fp = MT + 2;
+            box(ML, fp, CW, 10, 2, C.gold, null);
+            T(C.dark); B(8); pdf.text(`COMBATTANTS — Suite (${ui + 1}/${users.length})`, ML + 4, fp + 7);
+            fp += 15;
+            box(ML, fp, CW, 8, 2, C.border, null);
+            T(C.muted); B(6.5);
+            pdf.text('N°', ML + 2, fp + 5.5); pdf.text('NOM COMPLET', ML + 12, fp + 5.5);
+            pdf.text('PSEUDO', ML + 65, fp + 5.5); pdf.text('WHATSAPP', ML + 105, fp + 5.5); pdf.text('VILLE', ML + 148, fp + 5.5);
+            fp += 8;
+          }
+
+          box(ML, fp, CW, rh, 1, ui % 2 === 0 ? C.card : C.card2, null);
+          T(C.muted); N(6.5); pdf.text(String(ui + 1), ML + 2, fp + 5);
+          T(C.white); B(7); pdf.text(String(u.name || '—').substring(0, 24).toUpperCase(), ML + 12, fp + 5);
+          T(C.cyan); N(7); pdf.text(String(u.pseudo || '—').substring(0, 16), ML + 65, fp + 5);
+          T(C.green); N(7); pdf.text(String(u.phone || '—').substring(0, 16), ML + 105, fp + 5);
+          T(C.muted); N(7); pdf.text(String(u.city || '—').substring(0, 14), ML + 148, fp + 5);
+          fp += rh;
+        }
+      }
+
+      // ── Sauvegarde ──
       pdf.save(`ArenaOfMinds_Rapport_${dateFile}.pdf`);
-      setPdfMsg(isAuto ? '✓ Rapport 20h généré et téléchargé !' : '✓ Rapport PDF téléchargé !');
+      setPdfMsg(isAuto ? '✓ Rapport 20h généré !' : '✓ Rapport PDF téléchargé !');
       setTimeout(() => setPdfMsg(''), 5000);
 
     } catch (err) {
       console.error('PDF error:', err);
-      setPdfMsg('Erreur génération PDF.');
-      setTimeout(() => setPdfMsg(''), 4000);
+      setPdfMsg('Erreur génération PDF. Vérifiez la console.');
+      setTimeout(() => setPdfMsg(''), 5000);
     }
     setPdfLoading(false);
   };
 
+  // ══════════════════════════
+  //   HELPERS CSV
+  // ══════════════════════════
   const activeQuestionDetails = getLocalizedQuestionData(QUESTIONS_DU_JOUR.find(q => q.id === selectedQId));
   const currentQAnswers = answersByQId[selectedQId] || [];
   const isCurrentlyLive = activeQuestionDetails && currentHour >= activeQuestionDetails.start && currentHour < activeQuestionDetails.end;
@@ -377,9 +466,7 @@ const AdminPanel = ({ currentHour }) => {
     const header = "Joueur,Reponse,Date(Local)\n";
     const rows = currentQAnswers.map(ans => {
       const date = new Date(ans.timestamp).toLocaleString('fr-FR');
-      const joueur = `"${ans.joueur.replace(/"/g, '""')}"`;
-      const reponse = `"${ans.reponse.replace(/"/g, '""')}"`;
-      return `${joueur},${reponse},${date}`;
+      return `"${ans.joueur.replace(/"/g, '""')}","${ans.reponse.replace(/"/g, '""')}","${date}"`;
     }).join("\n");
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -392,19 +479,22 @@ const AdminPanel = ({ currentHour }) => {
     if (!users.length) return;
     const headers = ['Date Inscription', 'Nom Complet', 'Pseudo', 'WhatsApp', 'Email', 'Ville', 'UID'];
     const rows = users.map(u => [new Date(u.registeredAt).toLocaleString('fr-FR', { timeZone: 'Africa/Douala' }), u.name || '', u.pseudo || '', u.phone || '', u.email || '', u.city || '', u.uid || '']);
-    const csvContent = [headers.join(','), ...rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url; link.setAttribute('download', `base_joueurs_arene_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
+  // ══════════════════════════
+  //   RENDU
+  // ══════════════════════════
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#03040E] flex flex-col items-center justify-center p-4">
         <form onSubmit={handleLogin} className="glass-card p-8 rounded-2xl w-full max-w-sm flex flex-col items-center">
-          <div onDoubleClick={() => setIsAuthenticated(true)} className="w-16 h-16 rounded-full bg-arena-danger/10 flex items-center justify-center mb-6 cursor-pointer" title="Double Click to Bypass">
+          <div onDoubleClick={() => setIsAuthenticated(true)} className="w-16 h-16 rounded-full bg-arena-danger/10 flex items-center justify-center mb-6 cursor-pointer">
             <Lock className="w-8 h-8 text-arena-danger" />
           </div>
           <h2 className="text-xl font-display font-bold text-white uppercase tracking-widest mb-6">{t('admin_login_title')}</h2>
@@ -419,6 +509,7 @@ const AdminPanel = ({ currentHour }) => {
   return (
     <div className="min-h-screen bg-[#03040E] text-[#F1F5F9] font-body flex flex-col lg:flex-row">
 
+      {/* Modal suppression */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
           <div className="bg-[#0a0f1e] border border-arena-danger/50 rounded-2xl p-6 max-w-sm w-full text-center">
@@ -434,12 +525,14 @@ const AdminPanel = ({ currentHour }) => {
         </div>
       )}
 
+      {/* Notification PDF */}
       {pdfMsg && (
-        <div className="fixed top-4 right-4 z-50 bg-[#0a1528] border border-arena-secondary/50 text-arena-secondary px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-3 shadow-xl animate-pulse">
+        <div className="fixed top-4 right-4 z-50 bg-[#0a1528] border border-arena-secondary/50 text-arena-secondary px-5 py-3 rounded-xl text-sm font-bold flex items-center gap-3 shadow-xl">
           <FileText className="w-4 h-4" /> {pdfMsg}
         </div>
       )}
 
+      {/* Sidebar */}
       <div className="w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-arena-border bg-[#050812] flex flex-col shrink-0">
         <div className="p-6 border-b border-arena-border flex items-center gap-3">
           <LayoutDashboard className="w-6 h-6 text-arena-danger" />
@@ -461,12 +554,16 @@ const AdminPanel = ({ currentHour }) => {
                 {QUESTIONS_DU_JOUR.map(q => {
                   const isActive = selectedQId === q.id;
                   const isLive = currentHour >= q.start && currentHour < q.end;
+                  const nbAns = answersByQId[q.id]?.length || 0;
                   return (
                     <button key={q.id} onClick={() => { setSelectedQId(q.id); setRevealCorrect(false); }}
                       className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${isActive ? 'bg-arena-danger/10 border-arena-danger/50 text-white' : 'border-transparent text-arena-textMuted hover:bg-white/5 hover:text-white'}`}>
                       <div className="flex items-center gap-3">
                         <span className="font-mono font-bold text-lg opacity-50">#{q.id}</span>
-                        <span className="font-medium">{q.start}h - {q.end}h</span>
+                        <div>
+                          <span className="font-medium block">{q.start}h - {q.end}h</span>
+                          <span className="text-xs opacity-50">{nbAns} réponse{nbAns > 1 ? 's' : ''}</span>
+                        </div>
                       </div>
                       {isLive && <div className="w-2 h-2 rounded-full bg-arena-success shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
                     </button>
@@ -474,7 +571,7 @@ const AdminPanel = ({ currentHour }) => {
                 })}
               </div>
 
-              {/* ── Bouton PDF ── */}
+              {/* Bouton PDF */}
               <div className="mt-auto pt-6 space-y-2">
                 <button onClick={() => generateDailyPDF(false)} disabled={pdfLoading}
                   className="w-full flex items-center justify-center gap-2 bg-arena-danger/10 hover:bg-arena-danger/20 border border-arena-danger/50 disabled:opacity-50 disabled:cursor-not-allowed text-arena-danger px-4 py-3 rounded-xl transition-colors text-xs font-bold uppercase tracking-widest">
@@ -501,6 +598,7 @@ const AdminPanel = ({ currentHour }) => {
         </div>
       </div>
 
+      {/* Main Content */}
       <div className="flex-1 p-4 lg:p-8 h-screen overflow-y-auto w-full">
 
         {activeTab === 'reponses' && activeQuestionDetails && (
@@ -587,7 +685,7 @@ const AdminPanel = ({ currentHour }) => {
                               <td className="p-4 text-sm font-bold text-white max-w-[200px] truncate">{ans.joueur}</td>
                               <td className="p-4 text-sm">
                                 {showAnswers ? <span className="text-arena-secondary font-mono">{ans.reponse}</span>
-                                  : <span className="text-arena-textMuted flex items-center gap-2 text-xs uppercase tracking-widest opacity-50"><Lock className="w-3 h-3" /> {t('admin_ans_hidden')}</span>}
+                                  : <span className="text-arena-textMuted flex items-center gap-2 text-xs uppercase tracking-widest opacity-50"><Lock className="w-3 h-3" />{t('admin_ans_hidden')}</span>}
                               </td>
                             </tr>
                           ))}
@@ -689,7 +787,7 @@ const AdminPanel = ({ currentHour }) => {
                           <td className="p-4 text-sm text-arena-primary font-mono">{u.phone}</td>
                           <td className="p-4 text-sm text-arena-textMuted capitalize">{u.city}</td>
                           <td className="p-4 text-center">
-                            <button onClick={() => setDeleteConfirm(u)} className="p-2 rounded-lg text-arena-textMuted hover:text-arena-danger hover:bg-arena-danger/10 transition-colors" title="Supprimer ce combattant">
+                            <button onClick={() => setDeleteConfirm(u)} className="p-2 rounded-lg text-arena-textMuted hover:text-arena-danger hover:bg-arena-danger/10 transition-colors">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
