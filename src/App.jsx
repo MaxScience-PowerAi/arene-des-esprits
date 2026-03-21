@@ -1,213 +1,216 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { AnimatePresence } from 'framer-motion';
+import { Brain } from 'lucide-react';
 
-import BackgroundFX from './components/BackgroundFX.jsx';
-import HomePage from './components/HomePage.jsx';
-import GamePage from './components/GamePage.jsx';
-import AdminPanel from './components/AdminPanel.jsx';
-import { getRandomQuestions, RECAP_HOUR, getCurrentHour } from './questions.js';
+import { auth, signInPlayer, db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { QUESTIONS_DU_JOUR, getCurrentHour } from './questions';
+import { t, LANG } from './i18n';
 
-const isGameActive = () => {
-  const h = getCurrentHour();
-  return h >= 8 && h < RECAP_HOUR;
-};
+import BackgroundFX from './components/BackgroundFX';
+import LandingScreen from './components/LandingScreen';
+import RegistrationScreen from './components/RegistrationScreen';
+import LoadingScreen from './components/LoadingScreen';
+import ClosedScreen from './components/ClosedScreen';
+import QuestionCard from './components/QuestionCard';
+import SuccessScreen from './components/SuccessScreen';
+import AdminPanel from './components/AdminPanel';
 
-const ADMIN_PASSWORD = 'admin123';
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [hasEntered, setHasEntered] = useState(false);
+  const [hasRegistered, setHasRegistered] = useState(false);
+  
+  const [currentHour, setCurrentHour] = useState(getCurrentHour());
+  const [hasAnsweredCurrent, setHasAnsweredCurrent] = useState(false);
+  
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [adminClicks, setAdminClicks] = useState(0);
 
-const QUESTIONS = getRandomQuestions(5);
+  const activeQuestion = QUESTIONS_DU_JOUR.find(q => currentHour >= q.start && currentHour < q.end);
+  const nextQuestion = QUESTIONS_DU_JOUR.find(q => q.start > currentHour);
 
-export default function App() {
-  const [gameActive, setGameActive] = useState(isGameActive());
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [playerName, setPlayerName] = useState(() => localStorage.getItem('arene_player_name') || '');
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-  const [showConfetti, setShowConfetti] = useState(false);
-  const [currentView, setCurrentView] = useState('home');
-
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [responses, setResponses] = useState([]);
-
-  const activeQuestion = QUESTIONS[currentQuestionIndex];
-
+  // Set Interval to check hour changes
   useEffect(() => {
-    const savedResponses = JSON.parse(localStorage.getItem('responses') || '[]');
-    setResponses(savedResponses);
-    
-    const tick = () => {
-      setGameActive(isGameActive());
-    };
-    
-    tick();
-    const id = setInterval(tick, 30_000);
+    const int = setInterval(() => {
+      const h = getCurrentHour();
+      if (h !== currentHour) {
+        setCurrentHour(h);
+      }
+    }, 60000); // Check every minute
+    return () => clearInterval(int);
+  }, [currentHour]);
 
-    return () => clearInterval(id);
+  // Auth flow
+  useEffect(() => {
+    let unsub = auth.onAuthStateChanged(async (u) => {
+      if (!u) {
+        try {
+          const newUser = await signInPlayer();
+          setUser(newUser);
+        } catch (e) {
+          console.error("Impossible de s'authentifier", e);
+          setLoading(false);
+        }
+      } else {
+        setUser(u);
+      }
+    });
+    return () => unsub();
   }, []);
 
-  const handleSubmit = useCallback(async (answer, resetAnswer) => {
-    if (!activeQuestion || !playerName.trim() || !answer.trim()) return;
+  // Check if player has answered the active question AND is registered
+  useEffect(() => {
+    let cancelled = false;
 
-    setIsSubmitting(true);
-    setSubmitError('');
+    const checkParticipation = async () => {
+      if (!user) {
+        if (loading) setLoading(false);
+        return;
+      }
 
-    const savedResponses = JSON.parse(localStorage.getItem('responses') || '[]');
-    
-    const existingResponse = savedResponses.find(r => 
-      r.questionId === activeQuestion.displayId && r.joueur === playerName.trim()
-    );
-    
-    if (existingResponse) {
-      setIsSubmitted(true);
-      setIsSubmitting(false);
-      return;
-    }
+      setLoading(true);
+      try {
+        // Check registration
+        const regRef = doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users`, user.uid);
+        const regSnap = await getDoc(regRef);
+        if (!cancelled) setHasRegistered(regSnap.exists());
 
-    const newResponse = {
-      id: Date.now().toString(),
-      joueur: playerName.trim(),
-      reponse: answer.trim(),
-      questionId: activeQuestion.displayId,
-      timestamp: Date.now(),
+        // Check active question
+        if (activeQuestion) {
+          const ansRef = doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${activeQuestion.id}`, user.uid);
+          const ansSnap = await getDoc(ansRef);
+          if (!cancelled) setHasAnsweredCurrent(ansSnap.exists());
+        } else {
+          if (!cancelled) setHasAnsweredCurrent(false);
+        }
+      } catch (e) {
+        console.error("Firebase read error", e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
-    savedResponses.push(newResponse);
-    localStorage.setItem('responses', JSON.stringify(savedResponses));
-    localStorage.setItem('arene_player_name', playerName.trim());
-    localStorage.setItem(`q${activeQuestion.displayId}_submitted`, '1');
+    checkParticipation();
+    return () => { cancelled = true; };
+  }, [user, activeQuestion, currentHour]);
 
-    setResponses(savedResponses);
-    setIsSubmitted(true);
-    setShowConfetti(true);
-    setTimeout(() => setShowConfetti(false), 3000);
-    resetAnswer?.();
-    setIsSubmitting(false);
-  }, [activeQuestion, playerName]);
-
-  const handleAdminSubmit = (e) => {
-    if (e) e.preventDefault();
-    if (adminPassword === ADMIN_PASSWORD) { 
-      setIsAdmin(true); 
-      setAdminPassword(''); 
-    } else {
-      setAdminPassword('');
-    }
+  // Secret Admin Trigger Logic (Triple Click tight window)
+  const handleSecretAdminClick = () => {
+    setAdminClicks(prev => prev + 1);
   };
 
-  const handleNextQuestion = () => {
-    if (currentQuestionIndex < QUESTIONS.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1);
-      setIsSubmitted(false);
+  useEffect(() => {
+    if (adminClicks === 3) {
+      setIsAdminMode(true);
+      setAdminClicks(0);
     }
-  };
+    const timer = setTimeout(() => setAdminClicks(0), 1000);
+    return () => clearTimeout(timer);
+  }, [adminClicks]);
 
-  const handlePrevQuestion = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(prev => prev - 1);
-      setIsSubmitted(false);
-    }
-  };
+  // View state derivation
+  let DisplayComponent = null;
 
-  if (isAdmin) {
+  if (isAdminMode) {
+    return <AdminPanel currentHour={currentHour} />;
+  }
+
+  // Si on n'est pas encore entré dans l'arène, on montre le Landing
+  if (!hasEntered) {
     return (
-      <AdminPanel
-        onClose={() => { setIsAdmin(false); setCurrentView('home'); }}
-        responses={responses}
+      <AnimatePresence>
+        <LandingScreen 
+          onEnter={() => setHasEntered(true)} 
+          onSecretClick={handleSecretAdminClick} 
+        />
+      </AnimatePresence>
+    );
+  }
+
+  if (loading) {
+    DisplayComponent = <LoadingScreen />;
+  } else if (!hasRegistered) {
+    DisplayComponent = <RegistrationScreen user={user} onRegistered={() => setHasRegistered(true)} />;
+  } else if (!activeQuestion) {
+    DisplayComponent = <ClosedScreen currentHour={currentHour} nextQuestion={nextQuestion} />;
+  } else if (hasAnsweredCurrent) {
+    DisplayComponent = <SuccessScreen nextQuestion={nextQuestion} />;
+  } else {
+    DisplayComponent = (
+      <QuestionCard 
+        user={user} 
+        question={activeQuestion} 
+        onSubmited={() => setHasAnsweredCurrent(true)}
       />
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
+    <>
       <BackgroundFX />
       
-      <AnimatePresence>
-        {showConfetti && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center"
-          >
-            {[...Array(20)].map((_, i) => (
-              <motion.div
-                key={i}
-                className="absolute w-3 h-3 rounded-full"
-                style={{
-                  background: ['#fbbf24', '#22d3ee', '#a855f7', '#10b981'][i % 4],
-                  left: '50%',
-                  top: '50%',
-                }}
-                initial={{ x: 0, y: 0, opacity: 1 }}
-                animate={{
-                  x: (Math.random() - 0.5) * 600,
-                  y: (Math.random() - 0.5) * 600,
-                  opacity: 0,
-                }}
-                transition={{ duration: 2, delay: i * 0.03 }}
-              />
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Header - Not rendered in Loading Screen */}
+      {!loading && (
+        <header className="w-full flex justify-between items-center p-4 md:p-6 sticky top-0 z-10 bg-gradient-to-b from-[#03040E] to-transparent">
+          <div className="flex items-center gap-3 group">
+            <div className="relative">
+              <div className="absolute inset-0 bg-arena-primary/30 blur-[10px] rounded-full group-hover:bg-arena-secondary/50 transition-colors" />
+              <button 
+                onClick={handleSecretAdminClick}
+                className="bg-[#080C1A] border border-arena-border p-1 rounded-full relative z-10 transition-colors group-hover:border-arena-secondary focus:outline-none flex items-center justify-center overflow-hidden w-10 h-10"
+                title="Triple click for admin"
+              >
+                <img 
+                  src="/logo.png" 
+                  alt="AE" 
+                  className="w-full h-full object-cover rounded-full object-[center_38%] scale-[1.35]"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.style.display = 'none';
+                    e.target.nextElementSibling.style.display = 'block';
+                  }}
+                />
+                <Brain className="w-5 h-5 text-arena-textMain hidden" />
+              </button>
+            </div>
+            <div>
+              <h1 className="font-display font-bold text-lg md:text-xl uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-arena-textMuted">
+                {t('app_title')}
+              </h1>
+              <p className="text-[10px] md:text-xs font-mono text-arena-primary tracking-widest uppercase">
+                {t('app_subtitle')}
+              </p>
+            </div>
+          </div>
+          
+          <div className="hidden sm:flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${activeQuestion ? 'bg-arena-success animate-pulse' : 'bg-arena-textMuted'}`} />
+            <span className={`text-xs font-bold uppercase tracking-widest ${activeQuestion ? 'text-arena-success' : 'text-arena-textMuted'}`}>
+              {activeQuestion ? t('status_open') : t('status_closed')}
+            </span>
+          </div>
+        </header>
+      )}
 
-      <AnimatePresence mode="wait">
-        {currentView === 'home' && (
-          <motion.div
-            key="home"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="relative z-10 w-full max-w-lg px-4"
-          >
-            <HomePage
-              onPlayNow={handlePlayNow}
-              gameActive={gameActive}
-              onAdminSubmit={handleAdminSubmit}
-              adminPassword={adminPassword}
-              onAdminPasswordChange={setAdminPassword}
-            />
-          </motion.div>
-        )}
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col justify-center min-h-[calc(100vh-100px)] relative z-10">
+        <AnimatePresence mode="wait">
+          {DisplayComponent}
+        </AnimatePresence>
+      </main>
 
-        {currentView === 'game' && (
-          <motion.div
-            key="game"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
-            className="relative z-10 w-full max-w-xl px-4"
-          >
-            <GamePage
-              activeQuestion={activeQuestion}
-              currentIndex={currentQuestionIndex}
-              totalQuestions={QUESTIONS.length}
-              playerName={playerName}
-              onPlayerNameChange={setPlayerName}
-              onSubmit={handleSubmit}
-              isSubmitting={isSubmitting}
-              submitError={submitError}
-              isCheckingSubmission={false}
-              isSubmitted={isSubmitted}
-              onBackHome={handleBackHome}
-              onNextQuestion={handleNextQuestion}
-              onPrevQuestion={handlePrevQuestion}
-              adminPassword={adminPassword}
-              onAdminPasswordChange={setAdminPassword}
-              onAdminSubmit={handleAdminSubmit}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+      {/* Footer */}
+      {!loading && (
+        <footer className="w-full p-6 flex flex-col items-center justify-center opacity-40 hover:opacity-100 transition-opacity mt-auto">
+          <p className="font-display text-[10px] font-bold tracking-[0.3em] uppercase">
+            {t('merci_title')}
+          </p>
+        </footer>
+      )}
+    </>
   );
-  
-  function handlePlayNow() {
-    setCurrentView('game');
-  }
-  
-  function handleBackHome() {
-    setCurrentView('home');
-  }
 }
+
+export default App;

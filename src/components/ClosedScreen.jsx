@@ -1,146 +1,105 @@
-import React from 'react';
-import { motion } from 'framer-motion';
-import { Clock, Sparkles, Zap, Swords, Crown } from 'lucide-react';
-import { QUESTIONS_DU_JOUR, getCurrentHour, getNextSlotTime } from '../questions.js';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Lock, Clock, CheckCircle } from 'lucide-react';
+import { t } from '../i18n';
+import Countdown from './Countdown';
+import { QUESTIONS_DU_JOUR } from '../questions';
 
-export default function ClosedScreen() {
-  const currentHour = getCurrentHour();
-  const nextSlot = getNextSlotTime();
-  
+const ClosedScreen = ({ currentHour, nextQuestion }) => {
+  const [msgIndex, setMsgIndex] = useState(0);
+  const messages = t('mystery_messages');
+
+  useEffect(() => {
+    const int = setInterval(() => {
+      setMsgIndex((prev) => (prev + 1) % messages.length);
+    }, 5000);
+    return () => clearInterval(int);
+  }, [messages.length]);
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="relative"
+    <motion.div 
+      initial={{ opacity: 0, y: 20, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -20, scale: 0.98 }}
+      className="flex flex-col items-center justify-center w-full max-w-md mx-auto min-h-[60vh] px-4"
     >
-      <div
-        className="absolute -inset-1 rounded-3xl opacity-20 blur-xl"
-        style={{
-          background: 'radial-gradient(circle at 50% 30%, rgba(91,110,245,0.3) 0%, transparent 70%)',
-        }}
-      />
-      
-      <div
-        className="relative rounded-3xl p-10 text-center overflow-hidden"
-        style={{
-          background: 'linear-gradient(180deg, rgba(15,18,36,0.9) 0%, rgba(10,12,25,0.95) 100%)',
-          border: '1px solid rgba(30,34,64,0.8)',
-          boxShadow: '0 25px 80px rgba(0,0,0,0.5)',
-        }}
-      >
-        <div
-          className="absolute top-0 left-0 right-0 h-0.5"
-          style={{
-            background: 'linear-gradient(90deg, transparent, rgba(91,110,245,0.5), transparent)',
-          }}
-        />
+      <div className="glass-card w-full p-8 rounded-2xl flex flex-col items-center text-center">
+        <div className="w-16 h-16 rounded-full bg-arena-border/50 flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+          <Lock className="w-8 h-8 text-arena-textMuted" />
+        </div>
         
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
-          <div className="w-80 h-80 rounded-full border border-arena-border/10 animate-pulse-slow" />
-          <div className="absolute w-60 h-60 rounded-full border border-arena-accent/5 animate-pulse-slow" style={{ animationDelay: '1s' }} />
-          <div className="absolute w-40 h-40 rounded-full border border-arena-gold/5 animate-pulse-slow" style={{ animationDelay: '2s' }} />
+        <h2 className="font-display text-2xl font-bold mb-2 text-arena-textMain uppercase tracking-wide">
+          {t('arena_closed_title')}
+        </h2>
+        
+        <div className="h-12 mb-6">
+          <AnimatePresence mode="wait">
+            <motion.p 
+              key={msgIndex}
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -5 }}
+              transition={{ duration: 0.5 }}
+              className="text-arena-textMuted text-sm whitespace-pre-line leading-relaxed"
+            >
+              {messages[msgIndex]}
+            </motion.p>
+          </AnimatePresence>
         </div>
 
-        <div className="relative z-10">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="inline-flex items-center justify-center w-24 h-24 rounded-2xl mb-8 relative"
-            style={{
-              background: 'linear-gradient(135deg, rgba(91,110,245,0.2) 0%, rgba(168,85,247,0.1) 100%)',
-              border: '1px solid rgba(245,158,11,0.2)',
-              boxShadow: '0 0 60px rgba(91,110,245,0.2)',
-            }}
-          >
-            <Swords size={40} className="text-arena-gold" />
-            <div className="absolute -inset-1 rounded-2xl border border-arena-gold/10 animate-border-glow" />
-          </motion.div>
-
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="h-px w-12 bg-gradient-to-r from-transparent to-arena-gold/50" />
-            <Crown size={18} className="text-arena-gold" />
-            <h2 className="font-display text-4xl font-bold text-white">
-              L'Arène est Fermée
-            </h2>
-            <Crown size={18} className="text-arena-gold" />
-            <div className="h-px w-12 bg-gradient-to-l from-transparent to-arena-gold/50" />
-          </div>
-          
-          <p className="text-slate-400 leading-relaxed mb-10 max-w-md mx-auto text-lg font-body">
-            Les esprits se reposent. La prochaine épreuve commence dans{' '}
-            <span className="text-arena-gold font-display font-bold">{nextSlot.minutes} minutes</span>.
-          </p>
-
-          <div
-            className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl mb-8"
-            style={{
-              background: 'rgba(245,158,11,0.1)',
-              border: '1px solid rgba(245,158,11,0.2)',
-            }}
-          >
-            <Zap size={18} className="text-arena-gold" />
-            <span className="text-arena-gold font-display font-semibold">
-              Prochain créneau : {nextSlot.hour}h00
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-xs font-display uppercase tracking-widest text-slate-600 mb-4">
-              Programme du jour
+        {nextQuestion && (
+          <div className="w-full mt-2 pt-6 border-t border-arena-border/50">
+            <p className="font-mono text-xs text-arena-secondary mb-4 uppercase tracking-wider">
+              {t('next_riddle_in')} :
             </p>
-            <div className="flex flex-wrap justify-center gap-3">
-              {QUESTIONS_DU_JOUR.map(q => {
-                const past = currentHour >= q.end;
-                const active = currentHour >= q.start && currentHour < q.end;
-                const isNext = q.start > currentHour && (!nextSlot || q.start === nextSlot.hour);
-                
-                return (
-                  <motion.div
-                    key={q.id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 * q.id }}
-                    className={`relative px-4 py-2.5 rounded-xl border transition-all ${
-                      active
-                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
-                        : past
-                        ? 'bg-slate-800/40 border-slate-700/30 text-slate-600'
-                        : isNext
-                        ? 'bg-arena-gold/20 border-arena-gold/50 text-arena-gold'
-                        : 'bg-slate-800/60 border-arena-border text-slate-400'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-display font-bold text-sm">
-                        Q{q.id}
-                      </span>
-                      <span className="text-xs opacity-70">
-                        {q.start}h–{q.end}h
-                      </span>
-                      {active && (
-                        <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      )}
-                      {isNext && !active && (
-                        <Sparkles size={10} className="text-arena-gold" />
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              })}
+            <div className="flex justify-center mb-6">
+              <Countdown targetTimeObj={{ h: nextQuestion.start, m: 0 }} />
             </div>
           </div>
-          
-          <div className="mt-8 pt-6 border-t border-arena-border/30">
-            <div className="flex items-center justify-center gap-2 text-slate-600 text-sm font-body">
-              <Clock size={14} />
-              <span>Reviens à {nextSlot.hour}h00 pour le prochain défi</span>
-              <Sparkles size={14} className="text-arena-gold" />
-            </div>
+        )}
+
+        {/* Schedule */}
+        <div className="w-full mt-6 flex flex-col items-start text-left">
+          <p className="font-display font-medium text-sm text-arena-textMain mb-4 uppercase tracking-widest opacity-80">
+            {t('schedule_title')}
+          </p>
+          <div className="flex flex-col gap-3 w-full">
+            {QUESTIONS_DU_JOUR.map((q) => {
+              const status = currentHour >= q.end ? 'past' : (currentHour >= q.start && currentHour < q.end ? 'active' : 'upcoming');
+              
+              let statusText = '';
+              let Icon = null;
+              let colors = '';
+
+              if (status === 'past') {
+                statusText = t('slot_past');
+                Icon = CheckCircle;
+                colors = 'text-arena-success border-arena-success/20 bg-arena-success/5';
+              } else if (status === 'active') {
+                statusText = t('slot_active');
+                Icon = Clock;
+                colors = 'text-arena-primary border-arena-primary/30 bg-arena-primary/10 shadow-[0_0_10px_rgba(99,102,241,0.1)]';
+              } else {
+                statusText = t('slot_upcoming');
+                Icon = Clock;
+                colors = 'text-arena-textMuted border-arena-border bg-[#03040E]/50';
+              }
+
+              return (
+                <div key={q.id} className={`flex items-center justify-between p-3 rounded-lg border ${colors}`}>
+                  <div className="flex items-center gap-3">
+                    <Icon className="w-4 h-4 opacity-80" />
+                    <span className="font-mono text-sm opacity-90">{String(q.start).padStart(2,'0')}h — {String(q.end).padStart(2,'0')}h</span>
+                  </div>
+                  <span className="text-xs font-bold uppercase tracking-wider">{statusText}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
     </motion.div>
   );
-}
+};
+
+export default ClosedScreen;

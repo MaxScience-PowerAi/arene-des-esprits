@@ -1,225 +1,204 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trophy, Loader2, AlertTriangle, Eye, EyeOff, Lightbulb, Target, Zap, Shield } from 'lucide-react';
-import { DIFFICULTY_CONFIG, CATEGORY_CONFIG } from '../questions.js';
-import Countdown from './Countdown.jsx';
+import { Eye, EyeOff, ShieldAlert, Sparkles, Send, HelpCircle } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import { getLocalizedQuestionData } from '../questions';
+import { t } from '../i18n';
 
-export default function QuestionCard({ question, playerName, onPlayerNameChange, onSubmit, isSubmitting, submitError }) {
+const QuestionCard = ({ user, question, onSubmited }) => {
+  const [pseudo, setPseudo] = useState('');
   const [answer, setAnswer] = useState('');
+  const [showAnswer, setShowAnswer] = useState(false);
   const [showHint, setShowHint] = useState(false);
-  const [answerVisible, setAnswerVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const diff = DIFFICULTY_CONFIG[question.difficulty] || DIFFICULTY_CONFIG.Moyen;
-  const cat = CATEGORY_CONFIG[question.category] || CATEGORY_CONFIG['Logique'];
+  const q = getLocalizedQuestionData(question);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSubmit(answer, () => setAnswer(''));
+    if (!pseudo.trim() || !answer.trim() || !user) return;
+    
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = {
+        uid: user.uid,
+        joueur: pseudo.trim(),
+        reponse: answer.trim(),
+        questionId: q.id,
+        timestamp: Date.now(),
+      };
+
+      const ref = doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${q.id}`, user.uid);
+      await setDoc(ref, data);
+      onSubmited();
+    } catch (err) {
+      console.error(err);
+      if (err.message?.includes('permission-denied') || err.code === 'permission-denied') {
+        setError(t('error_already_submitted'));
+      } else {
+        setError(t('error_network'));
+      }
+      setLoading(false);
+    }
   };
 
+  const difficultyColors = {
+    'Facile': 'text-arena-success border-arena-success/30 bg-arena-success/10',
+    'Easy': 'text-arena-success border-arena-success/30 bg-arena-success/10',
+    'Moyen': 'text-arena-gold border-arena-gold/30 bg-arena-gold/10',
+    'Medium': 'text-arena-gold border-arena-gold/30 bg-arena-gold/10',
+    'Difficile': 'text-arena-danger border-arena-danger/30 bg-arena-danger/10',
+    'Hard': 'text-arena-danger border-arena-danger/30 bg-arena-danger/10',
+    'Expert': 'text-[#9333EA] border-[#9333EA]/30 bg-[#9333EA]/10',
+  };
+
+  const diffColor = difficultyColors[q.displayDifficulty || q.difficulty] || 'text-arena-primary border-arena-primary/30 bg-arena-primary/10';
+
   return (
-    <motion.div
+    <motion.div 
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="relative"
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+      className="w-full max-w-lg mx-auto p-4"
     >
-      <div
-        className="absolute -inset-1 rounded-3xl opacity-30 blur-xl"
-        style={{
-          background: `radial-gradient(circle at 50% 0%, ${diff.ring}40 0%, transparent 70%)`,
-        }}
-      />
-      
-      <div
-        className="relative rounded-3xl overflow-hidden"
-        style={{
-          background: 'linear-gradient(180deg, rgba(15,18,36,0.95) 0%, rgba(10,12,25,0.98) 100%)',
-          border: `1px solid ${diff.ring}30`,
-          boxShadow: `0 0 0 1px ${diff.ring}10, 0 25px 80px rgba(0,0,0,0.6)`,
-        }}
-      >
-        <div
-          className="h-1 w-full"
-          style={{
-            background: `linear-gradient(90deg, transparent, ${diff.ring}, transparent)`,
-          }}
-        />
+      <div className="glass-card rounded-2xl overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.8)] relative">
+        {/* Dynamic top bar color based on difficulty */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-arena-primary to-arena-secondary opacity-80" />
         
-        <div className="relative z-10 p-8 md:p-10">
-          <div className="flex flex-wrap justify-between items-start gap-4 mb-8">
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-slate-800/50">
-                <Target size={14} className={cat?.color || 'text-slate-400'} />
-                <span className="text-xs font-display font-semibold uppercase tracking-widest text-slate-300">
-                  {question.category}
-                </span>
-              </div>
-              <span className={`badge-difficulty ${diff.color} ${diff.bg} ${diff.border}`}
-                style={{ boxShadow: `0 0 15px ${diff.glow}` }}>
-                <Zap size={10} className="inline mr-1" />
-                {question.difficulty} · {question.points} pts
-              </span>
-            </div>
-            <Countdown endHour={question.end} />
-          </div>
-
-          <div className="mb-2">
+        <div className="p-6 sm:p-8">
+          {/* Header Badges */}
+          <div className="flex justify-between items-center mb-6">
+            <span className="px-3 py-1 rounded-full border border-arena-border bg-[#03040E]/50 text-xs font-bold tracking-wider uppercase text-arena-textMuted flex items-center gap-2">
+              <Sparkles className="w-3 h-3 text-arena-secondary" />
+              {q.displayCategory}
+            </span>
             <div className="flex items-center gap-2">
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center font-display font-bold text-lg"
-                style={{
-                  background: `linear-gradient(135deg, ${diff.ring}30, ${diff.ring}10)`,
-                  border: `1px solid ${diff.ring}40`,
-                  color: diff.ring,
-                  boxShadow: `0 0 20px ${diff.glow}`,
-                }}
-              >
-                {question.id}
-              </div>
-              <span className="text-xs font-display uppercase tracking-widest text-slate-500">
-                Énigme #{question.id}
+              <span className={`px-3 py-1 rounded-full border text-xs font-bold tracking-wider uppercase ${diffColor}`}>
+                {q.difficulty}
+              </span>
+              <span className="px-3 py-1 rounded-full border border-arena-primary/30 bg-arena-primary/10 text-arena-primary text-xs font-bold tracking-wider">
+                {q.points} {q.points > 1 ? t('points_label_plural') : t('points_label')}
               </span>
             </div>
           </div>
 
-          <div
-            className="mb-8 p-8 rounded-2xl relative overflow-hidden"
-            style={{
-              background: 'linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.2) 100%)',
-              border: `1px solid ${diff.ring}20`,
-            }}
-          >
-            <div className="absolute inset-0 shimmer opacity-30" />
-            <div className="absolute top-0 left-0 w-1 h-full" style={{ background: diff.ring }} />
-            <p className="font-body text-xl md:text-2xl font-medium leading-relaxed text-slate-100 relative z-10 pl-3">
-              {question.text}
-            </p>
+          {/* Question Text */}
+          <div className="relative group mb-8">
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-shimmer" />
+            <h3 className="font-display text-xl sm:text-2xl font-bold text-arena-textMain leading-snug">
+              {q.displayText}
+            </h3>
           </div>
 
-          {question.hint && (
-            <div className="mb-6">
-              <button
-                type="button"
-                onClick={() => setShowHint(v => !v)}
-                className="flex items-center gap-2 text-sm font-display font-semibold uppercase tracking-widest text-slate-500 hover:text-amber-400 transition-colors group"
-              >
-                <div className="p-1.5 rounded-lg bg-amber-500/10 group-hover:bg-amber-500/20 transition-colors">
-                  <Lightbulb size={14} className="text-amber-400" />
-                </div>
-                {showHint ? 'Cacher l\'indice' : 'Besoin d\'un indice ?'}
-              </button>
-              <AnimatePresence>
-                {showHint && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                    className="overflow-hidden"
-                  >
-                    <div className="mt-4 p-5 rounded-xl bg-amber-500/10 border border-amber-500/30"
-                      style={{ boxShadow: '0 0 30px rgba(245,158,11,0.1)' }}>
-                      <div className="flex items-start gap-3">
-                        <Lightbulb size={18} className="text-amber-400 mt-0.5 flex-shrink-0" />
-                        <p className="text-amber-200/90 text-base font-body leading-relaxed">
-                          {question.hint}
-                        </p>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
+          {/* Hint Toggle */}
+          <div className="mb-8">
+            <button 
+              type="button"
+              onClick={() => setShowHint(!showHint)}
+              className="flex items-center gap-2 text-sm text-arena-textMuted hover:text-arena-secondary transition-colors group"
+            >
+              <HelpCircle className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              <span>{showHint ? t('hide_hint') : t('show_hint')}</span>
+            </button>
+            <AnimatePresence>
+              {showHint && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <p className="mt-3 p-4 rounded-lg bg-arena-primary/5 border border-arena-primary/20 text-sm text-arena-textMain/80 italic border-l-2 border-l-arena-primary">
+                    {q.displayHint}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-sm font-display font-bold uppercase tracking-widest text-slate-400 mb-3">
-                <div className="flex items-center gap-2">
-                  <Shield size={14} className="text-arena-cyan" />
-                  Ton identité de Gladiateur
-                </div>
+            {/* Pseudo Input */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold uppercase tracking-widest text-arena-textMuted ml-1">
+                {t('your_identity')}
               </label>
               <input
                 type="text"
                 required
-                value={playerName}
-                onChange={e => onPlayerNameChange(e.target.value)}
-                className="arena-input"
-                placeholder="Entre ton pseudo ou numéro WhatsApp…"
-                autoComplete="nickname"
+                value={pseudo}
+                onChange={(e) => setPseudo(e.target.value)}
+                placeholder={t('pseudo_placeholder')}
+                className="w-full bg-[#03040E]/80 border border-arena-border rounded-xl px-4 py-3 text-base text-arena-textMain placeholder:text-arena-textMuted/50 focus:outline-none focus:border-arena-primary focus:ring-1 focus:ring-arena-primary transition-all font-body"
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-display font-bold uppercase tracking-widest text-slate-400 mb-3">
-                <div className="flex items-center gap-2">
-                  <Trophy size={14} className="text-arena-gold" />
-                  Ta solution secrète
-                </div>
+            {/* Answer Input */}
+            <div className="space-y-1 relative">
+              <label className="text-xs font-bold uppercase tracking-widest text-arena-textMuted ml-1 flex justify-between items-end">
+                <span>{t('your_solution')}</span>
+                <span className="text-[10px] text-arena-textMuted/60 normal-case flex items-center gap-1">
+                  <ShieldAlert className="w-3 h-3" /> {t('answer_hidden_hint')}
+                </span>
               </label>
               <div className="relative">
                 <input
-                  type={answerVisible ? 'text' : 'password'}
+                  type={showAnswer ? "text" : "password"}
                   required
                   value={answer}
-                  onChange={e => setAnswer(e.target.value)}
-                  className="arena-input arena-input-gold pr-14"
-                  placeholder="Écris ta réponse ici…"
-                  autoComplete="off"
+                  onChange={(e) => setAnswer(e.target.value)}
+                  placeholder={t('answer_placeholder')}
+                  className="w-full bg-[#03040E]/80 border border-arena-border rounded-xl pl-4 pr-12 py-3 text-base text-arena-textMain placeholder:text-arena-textMuted/50 focus:outline-none focus:border-arena-secondary focus:ring-1 focus:ring-arena-secondary transition-all font-body"
                 />
                 <button
                   type="button"
-                  tabIndex={-1}
-                  onClick={() => setAnswerVisible(v => !v)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors p-1"
-                  aria-label={answerVisible ? 'Masquer' : 'Afficher'}
+                  onClick={() => setShowAnswer(!showAnswer)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-arena-textMuted hover:text-arena-textMain transition-colors p-1"
                 >
-                  {answerVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showAnswer ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              <p className="mt-2 text-xs text-slate-600 font-body flex items-center gap-1.5">
-                <Eye size={11} />
-                Masquée par défaut — les autres joueurs ne peuvent pas voir ta réponse
-              </p>
             </div>
 
-            <AnimatePresence>
-              {submitError && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="flex items-center gap-3 p-4 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400"
-                  style={{ boxShadow: '0 0 20px rgba(244,63,94,0.15)' }}
-                >
-                  <AlertTriangle size={18} className="flex-shrink-0" />
-                  <span className="font-body">{submitError}</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {error && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-arena-danger bg-arena-danger/10 border border-arena-danger/30 p-3 rounded-lg text-center font-medium">
+                {error}
+              </motion.div>
+            )}
 
+            {/* Submit Button */}
             <button
               type="submit"
-              disabled={isSubmitting || !playerName.trim() || !answer.trim()}
-              className="btn-gold flex items-center justify-center gap-3 text-lg py-5"
+              disabled={loading || !pseudo.trim() || !answer.trim()}
+              className="w-full relative overflow-hidden group bg-arena-primary hover:bg-indigo-500 text-white font-bold tracking-wide py-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-4 shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:shadow-[0_0_30px_rgba(99,102,241,0.6)] uppercase"
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 size={22} className="animate-spin" />
-                  <span>Envoi en cours…</span>
-                </>
-              ) : (
-                <>
-                  <Trophy size={22} />
-                  <span>Sceller ma réponse</span>
-                </>
-              )}
+              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+              <div className="relative flex items-center justify-center gap-2">
+                {loading ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>{t('submitting')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    <span>{t('submit_button')}</span>
+                  </>
+                )}
+              </div>
             </button>
           </form>
         </div>
       </div>
     </motion.div>
   );
-}
+};
+
+export default QuestionCard;
