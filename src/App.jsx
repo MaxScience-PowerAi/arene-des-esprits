@@ -159,7 +159,7 @@ function App() {
               <div className="absolute inset-0 bg-arena-primary/30 blur-[10px] rounded-full group-hover:bg-arena-secondary/50 transition-colors" />
               <button 
                 onClick={handleSecretAdminClick}
-                className="bg-[#080C1A] border border-arena-border p-1 rounded-full relative z-10 transition-colors group-hover:border-arena-secondary focus:outline-none flex items-center justify-center overflow-hidden w-10 h-10"
+                className="p-0 rounded-full relative z-10 transition-transform group-hover:scale-110 focus:outline-none flex items-center justify-center overflow-hidden w-12 h-12 shadow-[0_0_15px_rgba(34,211,238,0.3)]"
                 title="Triple click for admin"
               >
                 <img 

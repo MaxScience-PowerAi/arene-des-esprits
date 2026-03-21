@@ -27,8 +27,8 @@ const LandingScreen = ({ onEnter, onSecretClick }) => {
           className="relative mb-8 group focus:outline-none"
           title="Secret Access"
         >
-          <div className="absolute inset-0 bg-arena-primary blur-[40px] opacity-30 group-hover:opacity-50 transition-opacity duration-1000 rounded-full" />
-          <div className="w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-arena-secondary/50 shadow-[0_0_40px_rgba(34,211,238,0.4)] relative z-10 bg-[#080C1A] flex items-center justify-center">
+          <div className="absolute inset-[-10px] bg-arena-secondary blur-[30px] opacity-20 group-hover:opacity-60 transition-opacity duration-1000 rounded-full" />
+          <div className="w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden relative z-10 shadow-[0_0_40px_rgba(34,211,238,0.3)] group-hover:scale-105 transition-transform duration-500">
             <img 
               src="/logo.png" 
               alt="Logo Arène des Esprits" 

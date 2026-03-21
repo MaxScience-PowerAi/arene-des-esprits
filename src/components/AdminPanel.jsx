@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { QUESTIONS_DU_JOUR } from '../questions';
 import { Lock, Download, Eye, EyeOff, CheckCircle2, ChevronRight, LayoutDashboard, LogOut, Clock, Users } from 'lucide-react';
+import { t } from '../i18n';
 
 const AdminPanel = ({ currentHour }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -34,7 +35,8 @@ const AdminPanel = ({ currentHour }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     const hash = await hashPassword(password);
-    if (hash === import.meta.env.VITE_ADMIN_HASH) {
+    const expectedHash = import.meta.env.VITE_ADMIN_HASH || 'ae6ea89749a6174498af9ae34a7fc1c46a2ac2dad5c05ae1a3d0b24f3c4582a2';
+    if (hash === expectedHash) {
       setIsAuthenticated(true);
       setError(false);
     } else {
@@ -133,16 +135,16 @@ const AdminPanel = ({ currentHour }) => {
           <div className="w-16 h-16 rounded-full bg-arena-danger/10 flex items-center justify-center mb-6">
             <Lock className="w-8 h-8 text-arena-danger" />
           </div>
-          <h2 className="text-xl font-display font-bold text-white uppercase tracking-widest mb-6">Poste de Contrôle</h2>
+          <h2 className="text-xl font-display font-bold text-white uppercase tracking-widest mb-6">{t('admin_login_title')}</h2>
           <input 
             type="password" 
-            placeholder="Code d'accès" 
+            placeholder={t('admin_login_placeholder')}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className={`w-full bg-[#03040E] border ${error ? 'border-arena-danger' : 'border-arena-border'} rounded-lg p-3 text-center tracking-widest text-white mb-4 focus:outline-none focus:border-arena-danger`}
           />
           <button type="submit" className="w-full bg-arena-danger hover:bg-rose-600 text-white font-bold py-3 rounded-lg uppercase tracking-wide transition-colors">
-            Déverrouiller
+            {t('admin_login_btn')}
           </button>
         </form>
       </div>
@@ -155,22 +157,22 @@ const AdminPanel = ({ currentHour }) => {
       <div className="w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-arena-border bg-[#050812] flex flex-col shrink-0">
         <div className="p-6 border-b border-arena-border flex items-center gap-3">
           <LayoutDashboard className="w-6 h-6 text-arena-danger" />
-          <h1 className="font-display font-bold uppercase tracking-wider">Admin Panel</h1>
+          <h1 className="font-display font-bold uppercase tracking-wider">{t('admin_panel_title')}</h1>
         </div>
         
         <div className="flex border-b border-arena-border">
           <button onClick={() => setActiveTab('reponses')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab==='reponses'?'text-white bg-arena-danger/10 border-b-2 border-arena-danger':'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>
-            Réponses
+            {t('admin_tab_answers')}
           </button>
           <button onClick={() => setActiveTab('joueurs')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab==='joueurs'?'text-white bg-arena-secondary/10 border-b-2 border-arena-secondary':'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>
-            Joueurs <span className="ml-1 opacity-50">({users.length})</span>
+            {t('admin_tab_players')} <span className="ml-1 opacity-50">({users.length})</span>
           </button>
         </div>
         
         <div className="p-4 flex-1 overflow-y-auto">
           {activeTab === 'reponses' ? (
             <div className="flex flex-col h-full">
-              <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-4 ml-2">Énigmes du jour</p>
+              <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-4 ml-2">{t('admin_quests_today')}</p>
               <div className="flex flex-col gap-2">
                 {QUESTIONS_DU_JOUR.map(q => {
                   const isActive = selectedQId === q.id;
@@ -197,14 +199,14 @@ const AdminPanel = ({ currentHour }) => {
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-arena-textMuted opacity-50">
               <Users className="w-12 h-12 mb-4" />
-              <p className="text-xs uppercase tracking-widest text-center">Gérer les Combattants de l'Arène</p>
+              <p className="text-xs uppercase tracking-widest text-center">{t('admin_manage_challengers')}</p>
             </div>
           )}
         </div>
 
         <div className="p-4 border-t border-arena-border">
           <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-arena-textMuted hover:text-arena-danger transition-colors text-sm w-full p-2">
-            <LogOut className="w-4 h-4" /> Quitter
+            <LogOut className="w-4 h-4" /> {t('admin_logout')}
           </button>
         </div>
       </div>
@@ -221,11 +223,11 @@ const AdminPanel = ({ currentHour }) => {
                   <h2 className="text-2xl font-display font-bold uppercase tracking-wider">Énigme {activeQuestionDetails.id}</h2>
                   {isCurrentlyLive ? (
                     <span className="bg-arena-success/20 text-arena-success border border-arena-success/50 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest animate-pulse">
-                      EN DIRECT
+                      {t('admin_quest_live')}
                     </span>
                   ) : (
                     <span className="bg-arena-textMuted/20 text-arena-textMuted border border-arena-border px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">
-                      {(currentHour >= activeQuestionDetails.end) ? 'Terminée' : 'À venir'}
+                      {(currentHour >= activeQuestionDetails.end) ? t('admin_quest_ended') : t('admin_quest_upcoming')}
                     </span>
                   )}
                 </div>
@@ -238,14 +240,14 @@ const AdminPanel = ({ currentHour }) => {
                   className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#050812] border border-arena-border hover:border-arena-secondary text-arena-textMuted hover:text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium"
                 >
                   {showAnswers ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  {showAnswers ? 'Masquer Réponses' : 'Voir Réponses'}
+                  {showAnswers ? t('admin_btn_hide_ans') : t('admin_btn_show_ans')}
                 </button>
                 <button
                   onClick={handleExportCSV}
                   disabled={currentQAnswers.length === 0}
                   className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-arena-primary hover:bg-indigo-500 disabled:bg-arena-border disabled:text-arena-textMuted disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors text-sm font-bold"
                 >
-                  <Download className="w-4 h-4" /> CSV
+                  <Download className="w-4 h-4" /> {t('admin_btn_csv')}
                 </button>
               </div>
             </div>
@@ -254,7 +256,7 @@ const AdminPanel = ({ currentHour }) => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1 space-y-6">
                 <div className="glass-card p-6 rounded-2xl">
-                  <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-3">Sujet</p>
+                  <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-3">{t('admin_quest_subject')}</p>
                   <p className="text-lg font-medium leading-relaxed mb-6">{activeQuestionDetails.text}</p>
                   
                   <div className="border-t border-arena-border pt-4">
@@ -263,7 +265,7 @@ const AdminPanel = ({ currentHour }) => {
                       className="text-xs uppercase font-bold text-arena-gold hover:text-white transition-colors tracking-widest flex items-center gap-2 mb-2"
                     >
                       {revealCorrect ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      {revealCorrect ? 'Masquer la solution' : 'Révéler la solution'}
+                      {revealCorrect ? t('admin_btn_hide_sol') : t('admin_btn_show_sol')}
                     </button>
                     {revealCorrect && (
                       <div className="bg-arena-gold/10 border border-arena-gold/30 p-3 rounded-lg mt-2">
@@ -275,7 +277,7 @@ const AdminPanel = ({ currentHour }) => {
 
                 <div className="glass-card p-6 rounded-2xl flex items-center justify-between">
                   <div>
-                    <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-1">Participations</p>
+                    <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-1">{t('admin_participations')}</p>
                     <p className="text-3xl font-display font-bold text-white">{currentQAnswers.length}</p>
                   </div>
                   <CheckCircle2 className={`w-10 h-10 ${currentQAnswers.length > 0 ? 'text-arena-success opacity-50' : 'text-arena-textMuted opacity-20'}`} />
@@ -287,7 +289,7 @@ const AdminPanel = ({ currentHour }) => {
                   <div className="p-4 border-b border-arena-border bg-[#050812]">
                     <h3 className="font-bold uppercase tracking-wider text-sm flex items-center gap-2">
                       <LayoutDashboard className="w-4 h-4 text-arena-secondary" />
-                      Flux en direct
+                      {t('admin_live_feed')}
                     </h3>
                   </div>
                   
@@ -295,15 +297,15 @@ const AdminPanel = ({ currentHour }) => {
                     {currentQAnswers.length === 0 ? (
                       <div className="h-full flex flex-col items-center justify-center text-arena-textMuted p-8">
                         <Clock className="w-12 h-12 opacity-20 mb-4" />
-                        <p>En attente de participations...</p>
+                        <p>{t('admin_waiting')}</p>
                       </div>
                     ) : (
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-[#03040E]/80 text-xs uppercase tracking-widest text-arena-textMuted border-b border-arena-border">
-                            <th className="p-4 font-bold max-w-[150px] truncate">Heure</th>
-                            <th className="p-4 font-bold max-w-[200px] truncate">Joueur</th>
-                            <th className="p-4 font-bold">Réponse</th>
+                            <th className="p-4 font-bold max-w-[150px] truncate">{t('admin_col_time')}</th>
+                            <th className="p-4 font-bold max-w-[200px] truncate">{t('admin_col_player')}</th>
+                            <th className="p-4 font-bold">{t('admin_col_answer')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -320,7 +322,7 @@ const AdminPanel = ({ currentHour }) => {
                                   <span className="text-arena-secondary font-mono">{ans.reponse}</span>
                                 ) : (
                                   <span className="text-arena-textMuted flex items-center gap-2 text-xs uppercase tracking-widest opacity-50">
-                                    <Lock className="w-3 h-3" /> Masquée
+                                    <Lock className="w-3 h-3" /> {t('admin_ans_hidden')}
                                   </span>
                                 )}
                               </td>
@@ -341,15 +343,15 @@ const AdminPanel = ({ currentHour }) => {
           <div className="max-w-6xl mx-auto space-y-6 h-full flex flex-col">
             <div className="glass-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
               <div>
-                <h2 className="text-2xl font-display font-bold uppercase tracking-wider text-white">Base de Données Joueurs</h2>
-                <p className="text-arena-textMuted text-sm font-mono mt-1">Export pour campagnes ou validation</p>
+                <h2 className="text-2xl font-display font-bold uppercase tracking-wider text-white">{t('admin_db_title')}</h2>
+                <p className="text-arena-textMuted text-sm font-mono mt-1">{t('admin_db_desc')}</p>
               </div>
               <button
                 onClick={exportUsersToCSV}
                 disabled={users.length === 0}
                 className="flex items-center justify-center gap-2 bg-arena-secondary hover:bg-cyan-500 disabled:bg-arena-border disabled:text-arena-textMuted disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest"
               >
-                <Download className="w-4 h-4" /> Exporter en CSV
+                <Download className="w-4 h-4" /> {t('admin_db_export')}
               </button>
             </div>
 
@@ -358,18 +360,18 @@ const AdminPanel = ({ currentHour }) => {
                 {users.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-arena-textMuted p-12">
                      <Users className="w-16 h-16 opacity-20 mb-4" />
-                     <p className="uppercase tracking-widest text-sm font-bold">Base de données vide</p>
-                     <p className="text-xs mt-2 opacity-50">Aucun joueur ne s'est encore enrôlé.</p>
+                     <p className="uppercase tracking-widest text-sm font-bold">{t('admin_db_empty')}</p>
+                     <p className="text-xs mt-2 opacity-50">{t('admin_db_empty_desc')}</p>
                   </div>
                 ) : (
                   <table className="w-full text-left border-collapse min-w-[800px]">
                     <thead>
                       <tr className="bg-[#03040E]/80 text-xs uppercase tracking-widest text-arena-textMuted border-b border-arena-border sticky top-0 z-10">
-                        <th className="p-4 font-bold whitespace-nowrap">Date Inscription</th>
-                        <th className="p-4 font-bold">Nom Complet</th>
-                        <th className="p-4 font-bold">Pseudo</th>
-                        <th className="p-4 font-bold">WhatsApp</th>
-                        <th className="p-4 font-bold">Ville</th>
+                        <th className="p-4 font-bold whitespace-nowrap">{t('admin_col_date_reg')}</th>
+                        <th className="p-4 font-bold">{t('admin_col_fullname')}</th>
+                        <th className="p-4 font-bold">{t('admin_col_pseudo')}</th>
+                        <th className="p-4 font-bold">{t('admin_col_whatsapp')}</th>
+                        <th className="p-4 font-bold">{t('admin_col_city')}</th>
                       </tr>
                     </thead>
                     <tbody>
