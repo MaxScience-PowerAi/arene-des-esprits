@@ -18,7 +18,13 @@ const RegistrationScreen = ({ user, onRegistered, onBack }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!user || submitting) return;
+    
+    if (!user) {
+      alert("Erreur critique : Votre session sécurisée n'a pas pu être établie. \n\nVeuillez : \n1. Enlever la navigation privée\n2. Autoriser les cookies\n3. Rafraîchir la page.");
+      return;
+    }
+    
+    if (submitting) return;
 
     setSubmitting(true);
     try {
@@ -117,7 +123,7 @@ const RegistrationScreen = ({ user, onRegistered, onBack }) => {
                 <label className="text-xs font-bold uppercase tracking-widest text-arena-textMuted ml-1 block">
                   {t('reg_email')}
                 </label>
-                <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full bg-[#03040E]/80 border border-arena-border rounded-xl px-4 py-3 text-base text-arena-textMain focus:border-arena-primary focus:ring-1 focus:ring-arena-primary outline-none transition-all font-body" />
+                <input type="text" name="email" value={formData.email} onChange={handleChange} className="w-full bg-[#03040E]/80 border border-arena-border rounded-xl px-4 py-3 text-base text-arena-textMain focus:border-arena-primary focus:ring-1 focus:ring-arena-primary outline-none transition-all font-body" />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-bold uppercase tracking-widest text-arena-textMuted ml-1 block">
