@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
-import { QUESTIONS_DU_JOUR } from '../questions';
+import { QUESTIONS_DU_JOUR, getLocalizedQuestionData } from '../questions';
 import { Lock, Download, Eye, EyeOff, CheckCircle2, ChevronRight, LayoutDashboard, LogOut, Clock, Users } from 'lucide-react';
 import { t } from '../i18n';
 
@@ -77,7 +77,7 @@ const AdminPanel = ({ currentHour }) => {
     return () => unsub();
   }, [isAuthenticated, selectedQId]);
 
-  const activeQuestionDetails = QUESTIONS_DU_JOUR.find(q => q.id === selectedQId);
+  const activeQuestionDetails = getLocalizedQuestionData(QUESTIONS_DU_JOUR.find(q => q.id === selectedQId));
   const currentQAnswers = answersByQId[selectedQId] || [];
   const isCurrentlyLive = activeQuestionDetails && currentHour >= activeQuestionDetails.start && currentHour < activeQuestionDetails.end;
 
@@ -236,7 +236,7 @@ const AdminPanel = ({ currentHour }) => {
                     </span>
                   )}
                 </div>
-                <p className="text-arena-textMuted text-sm font-mono">{activeQuestionDetails.category} — {activeQuestionDetails.difficulty}</p>
+                <p className="text-arena-textMuted text-sm font-mono">{activeQuestionDetails.displayCategory} — {activeQuestionDetails.difficulty}</p>
               </div>
               
               <div className="flex gap-2 w-full md:w-auto">
@@ -262,7 +262,7 @@ const AdminPanel = ({ currentHour }) => {
               <div className="lg:col-span-1 space-y-6">
                 <div className="glass-card p-6 rounded-2xl">
                   <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-3">{t('admin_quest_subject')}</p>
-                  <p className="text-lg font-medium leading-relaxed mb-6">{activeQuestionDetails.text}</p>
+                  <p className="text-lg font-medium leading-relaxed mb-6">{activeQuestionDetails.displayText}</p>
                   
                   <div className="border-t border-arena-border pt-4">
                     <button 
@@ -274,7 +274,7 @@ const AdminPanel = ({ currentHour }) => {
                     </button>
                     {revealCorrect && (
                       <div className="bg-arena-gold/10 border border-arena-gold/30 p-3 rounded-lg mt-2">
-                        <p className="text-arena-gold font-mono text-sm">{activeQuestionDetails.answer}</p>
+                        <p className="text-arena-gold font-mono text-sm">{activeQuestionDetails.displayAnswer}</p>
                       </div>
                     )}
                   </div>

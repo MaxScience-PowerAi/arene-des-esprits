@@ -48,7 +48,7 @@ const SuccessScreen = ({ nextQuestion }) => {
         ) : (
           <div className="w-full pt-6 border-t border-arena-border/50 flex flex-col items-center">
             <p className="font-display font-bold text-arena-gold uppercase tracking-widest flex items-center gap-2">
-              FIN DES ÉPREUVES <ArrowRight className="w-4 h-4" />
+              {t('next_riddle_end')} <ArrowRight className="w-4 h-4" />
             </p>
           </div>
         )}
