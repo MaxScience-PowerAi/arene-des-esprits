@@ -61,10 +61,7 @@ function App() {
     return () => unsub();
   }, []);
 
-  // ──────────────────────────────────────────────
-  //  Vérification inscription au chargement
-  //  Ordre : uid Firebase → pseudo localStorage
-  // ──────────────────────────────────────────────
+  // Vérification inscription : uid Firebase → pseudo localStorage
   useEffect(() => {
     let cancelled = false;
 
@@ -77,17 +74,16 @@ function App() {
         let registered = false;
         let found = null;
 
-        // 1️⃣ Vérifie par uid Firebase
+        // 1️⃣ Par uid Firebase
         const regRef = doc(db, `artifacts/${appId}/public/data/users`, user.uid);
         const regSnap = await getDoc(regRef);
 
         if (regSnap.exists()) {
           registered = true;
           found = regSnap.data();
-          // Met à jour le localStorage
           if (found.pseudo) localStorage.setItem(LOCAL_KEY, found.pseudo.trim().toLowerCase());
         } else {
-          // 2️⃣ Vérifie par pseudo sauvegardé dans localStorage
+          // 2️⃣ Par pseudo localStorage
           const savedPseudo = localStorage.getItem(LOCAL_KEY);
           if (savedPseudo) {
             const snap = await getDocs(collection(db, `artifacts/${appId}/public/data/users`));
@@ -106,7 +102,7 @@ function App() {
           setPlayerData(found);
         }
 
-        // Vérifie si a déjà répondu à la question active
+        // Vérifie si a déjà répondu
         if (activeQuestion && found) {
           const uidToCheck = found.uid || user.uid;
           const ansRef = doc(db, `artifacts/${appId}/public/data/reponses_q${activeQuestion.id}`, uidToCheck);
@@ -135,15 +131,20 @@ function App() {
     return () => clearTimeout(timer);
   }, [adminClicks]);
 
-  // Callback après connexion/inscription réussie
-  const handleRegistered = () => setHasRegistered(true);
+  // Retour à l'accueil depuis n'importe quel écran
+  const handleBackToHome = () => {
+    setHasEntered(false);
+  };
 
   if (isAdminMode) return <AdminPanel currentHour={currentHour} />;
 
   if (!hasEntered) {
     return (
       <AnimatePresence>
-        <LandingScreen onEnter={() => setHasEntered(true)} onSecretClick={handleSecretAdminClick} />
+        <LandingScreen
+          onEnter={() => setHasEntered(true)}
+          onSecretClick={handleSecretAdminClick}
+        />
       </AnimatePresence>
     );
   }
@@ -155,20 +156,32 @@ function App() {
     DisplayComponent = (
       <RegistrationScreen
         user={user}
-        onRegistered={handleRegistered}
-        onBack={() => setHasEntered(false)}
+        onRegistered={() => setHasRegistered(true)}
+        onBack={handleBackToHome}
       />
     );
   } else if (!activeQuestion) {
-    DisplayComponent = <ClosedScreen currentHour={currentHour} nextQuestion={nextQuestion} />;
+    DisplayComponent = (
+      <ClosedScreen
+        currentHour={currentHour}
+        nextQuestion={nextQuestion}
+        onBack={handleBackToHome}
+      />
+    );
   } else if (hasAnsweredCurrent) {
-    DisplayComponent = <SuccessScreen nextQuestion={nextQuestion} />;
+    DisplayComponent = (
+      <SuccessScreen
+        nextQuestion={nextQuestion}
+        onBack={handleBackToHome}
+      />
+    );
   } else {
     DisplayComponent = (
       <QuestionCard
         user={user}
         question={activeQuestion}
         onSubmited={() => setHasAnsweredCurrent(true)}
+        onBack={handleBackToHome}
       />
     );
   }
@@ -206,7 +219,6 @@ function App() {
           </div>
 
           <div className="hidden sm:flex items-center gap-3">
-            {/* Pseudo du joueur connecté */}
             {playerData?.pseudo && (
               <span className="text-xs font-mono text-arena-secondary opacity-80 uppercase tracking-widest">
                 ⚔ {playerData.pseudo}
