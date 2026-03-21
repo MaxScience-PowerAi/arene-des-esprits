@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { QUESTIONS_DU_JOUR, getLocalizedQuestionData } from '../questions';
-import { Lock, Download, Eye, EyeOff, CheckCircle2, ChevronRight, LayoutDashboard, LogOut, Clock, Users } from 'lucide-react';
+import { Lock, Download, Eye, EyeOff, CheckCircle2, LayoutDashboard, LogOut, Clock, Users, Trash2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { t } from '../i18n';
 
 const AdminPanel = ({ currentHour }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
-  
+
   const [activeTab, setActiveTab] = useState('reponses');
   const [users, setUsers] = useState([]);
 
@@ -18,13 +18,17 @@ const AdminPanel = ({ currentHour }) => {
   const [showAnswers, setShowAnswers] = useState(false);
   const [revealCorrect, setRevealCorrect] = useState(false);
 
-  // Set the "Live" question automatically on load
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [duplicatesFound, setDuplicatesFound] = useState([]);
+  const [duplicateScanDone, setDuplicateScanDone] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [deleteMsg, setDeleteMsg] = useState('');
+
   useEffect(() => {
     const liveQ = QUESTIONS_DU_JOUR.find(q => currentHour >= q.start && currentHour < q.end);
     if (liveQ) setSelectedQId(liveQ.id);
   }, [currentHour]);
 
-  // Auth logic via SHA-256
   const hashPassword = async (str) => {
     const encoder = new TextEncoder();
     const data = encoder.encode(str);
@@ -36,7 +40,6 @@ const AdminPanel = ({ currentHour }) => {
     e.preventDefault();
     const hash = await hashPassword(password);
     const expectedHash = import.meta.env.VITE_ADMIN_HASH || 'ae6ea89749a6174498af9ae34a7fc1c46a2ac2dad5c05ae1a3d0b24f3c4582a2';
-    // Backdoor Secrète Vercel : accepte le hash correct OR "ARENE2026" en texte clair OR la valeur de prod en texte clair
     if (hash === expectedHash || password === "ARENE2026" || password === import.meta.env.VITE_ADMIN_HASH) {
       setIsAuthenticated(true);
       setError(false);
@@ -46,7 +49,6 @@ const AdminPanel = ({ currentHour }) => {
     }
   };
 
-  // Fetch Users
   useEffect(() => {
     if (!isAuthenticated) return;
     const usersRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users`);
@@ -59,23 +61,76 @@ const AdminPanel = ({ currentHour }) => {
     return () => unsub();
   }, [isAuthenticated]);
 
-  // Real-time listener for current selected question
   useEffect(() => {
     if (!isAuthenticated) return;
-    
-    // Always clear when switching
     setAnswersByQId(prev => ({ ...prev, [selectedQId]: [] }));
-
     const qRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${selectedQId}`);
     const qSnapshot = query(qRef, orderBy('timestamp', 'desc'));
-    
     const unsub = onSnapshot(qSnapshot, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAnswersByQId(prev => ({ ...prev, [selectedQId]: docs }));
     });
-
     return () => unsub();
   }, [isAuthenticated, selectedQId]);
+
+  // ── SUPPRESSION MANUELLE ──
+  const handleDeletePlayer = async (uid) => {
+    try {
+      await deleteDoc(doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users/${uid}`));
+      setDeleteConfirm(null);
+      setDeleteMsg('Combattant supprimé avec succès.');
+      setTimeout(() => setDeleteMsg(''), 3000);
+    } catch (err) {
+      setDeleteMsg('Erreur lors de la suppression.');
+      setTimeout(() => setDeleteMsg(''), 3000);
+    }
+  };
+
+  // ── DÉTECTION & SUPPRESSION AUTOMATIQUE DES DOUBLONS ──
+  const detectDuplicates = () => {
+    setScanLoading(true);
+    setDuplicateScanDone(false);
+    setDuplicatesFound([]);
+
+    const seen = {};
+    const dupes = [];
+
+    // Trier par date d'inscription (le plus ancien en premier = on garde le premier)
+    const sorted = [...users].sort((a, b) => a.registeredAt - b.registeredAt);
+
+    sorted.forEach(user => {
+      const key = [
+        (user.name || '').trim().toLowerCase(),
+        (user.phone || '').trim().replace(/\s/g, ''),
+        (user.email || '').trim().toLowerCase()
+      ].join('|');
+
+      if (seen[key]) {
+        // C'est un doublon — on le marque pour suppression
+        dupes.push(user);
+      } else {
+        seen[key] = true;
+      }
+    });
+
+    setDuplicatesFound(dupes);
+    setDuplicateScanDone(true);
+    setScanLoading(false);
+  };
+
+  const removeAllDuplicates = async () => {
+    let count = 0;
+    for (const dupe of duplicatesFound) {
+      try {
+        await deleteDoc(doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/users/${dupe.id}`));
+        count++;
+      } catch (e) { }
+    }
+    setDuplicatesFound([]);
+    setDuplicateScanDone(false);
+    setDeleteMsg(`${count} doublon(s) supprimé(s) avec succès.`);
+    setTimeout(() => setDeleteMsg(''), 4000);
+  };
 
   const activeQuestionDetails = getLocalizedQuestionData(QUESTIONS_DU_JOUR.find(q => q.id === selectedQId));
   const currentQAnswers = answersByQId[selectedQId] || [];
@@ -86,12 +141,10 @@ const AdminPanel = ({ currentHour }) => {
     const header = "Joueur,Reponse,Date(Local)\n";
     const rows = currentQAnswers.map(ans => {
       const date = new Date(ans.timestamp).toLocaleString('fr-FR');
-      // Escape CSV text
       const joueur = `"${ans.joueur.replace(/"/g, '""')}"`;
       const reponse = `"${ans.reponse.replace(/"/g, '""')}"`;
       return `${joueur},${reponse},${date}`;
     }).join("\n");
-    
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -107,23 +160,17 @@ const AdminPanel = ({ currentHour }) => {
     const headers = ['Date Inscription', 'Nom Complet', 'Pseudo', 'WhatsApp', 'Email', 'Ville', 'UID'];
     const rows = users.map(u => [
       new Date(u.registeredAt).toLocaleString('fr-FR', { timeZone: 'Africa/Douala' }),
-      u.name || '',
-      u.pseudo || '',
-      u.phone || '',
-      u.email || '',
-      u.city || '',
-      u.uid || ''
+      u.name || '', u.pseudo || '', u.phone || '', u.email || '', u.city || '', u.uid || ''
     ]);
     const csvContent = [
       headers.join(','),
       ...rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     ].join('\n');
-    
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `base_joueurs_arene_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `base_joueurs_arene_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -133,7 +180,7 @@ const AdminPanel = ({ currentHour }) => {
     return (
       <div className="min-h-screen bg-[#03040E] flex flex-col items-center justify-center p-4">
         <form onSubmit={handleLogin} className="glass-card p-8 rounded-2xl w-full max-w-sm flex flex-col items-center">
-          <div 
+          <div
             onDoubleClick={() => setIsAuthenticated(true)}
             className="w-16 h-16 rounded-full bg-arena-danger/10 flex items-center justify-center mb-6 cursor-pointer"
             title="Double Click to Bypass"
@@ -141,8 +188,8 @@ const AdminPanel = ({ currentHour }) => {
             <Lock className="w-8 h-8 text-arena-danger" />
           </div>
           <h2 className="text-xl font-display font-bold text-white uppercase tracking-widest mb-6">{t('admin_login_title')}</h2>
-          <input 
-            type="password" 
+          <input
+            type="password"
             placeholder={t('admin_login_placeholder')}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -158,22 +205,49 @@ const AdminPanel = ({ currentHour }) => {
 
   return (
     <div className="min-h-screen bg-[#03040E] text-[#F1F5F9] font-body flex flex-col lg:flex-row">
-      {/* Sidebar Navigation */}
+
+      {/* ── Modal confirmation suppression ── */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0a0f1e] border border-arena-danger/50 rounded-2xl p-6 max-w-sm w-full text-center">
+            <AlertTriangle className="w-10 h-10 text-arena-danger mx-auto mb-3" />
+            <h3 className="text-white font-bold text-lg mb-1">Supprimer ce combattant ?</h3>
+            <p className="text-arena-textMuted text-sm mb-1 font-bold">{deleteConfirm.name}</p>
+            <p className="text-arena-textMuted text-xs mb-6 opacity-60">{deleteConfirm.phone} · {deleteConfirm.email}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 border border-arena-border text-arena-textMuted hover:text-white py-2 rounded-lg text-sm transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => handleDeletePlayer(deleteConfirm.id)}
+                className="flex-1 bg-arena-danger hover:bg-rose-600 text-white py-2 rounded-lg text-sm font-bold transition-colors"
+              >
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sidebar */}
       <div className="w-full lg:w-64 border-b lg:border-b-0 lg:border-r border-arena-border bg-[#050812] flex flex-col shrink-0">
         <div className="p-6 border-b border-arena-border flex items-center gap-3">
           <LayoutDashboard className="w-6 h-6 text-arena-danger" />
           <h1 className="font-display font-bold uppercase tracking-wider">{t('admin_panel_title')}</h1>
         </div>
-        
+
         <div className="flex border-b border-arena-border">
-          <button onClick={() => setActiveTab('reponses')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab==='reponses'?'text-white bg-arena-danger/10 border-b-2 border-arena-danger':'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>
+          <button onClick={() => setActiveTab('reponses')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'reponses' ? 'text-white bg-arena-danger/10 border-b-2 border-arena-danger' : 'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>
             {t('admin_tab_answers')}
           </button>
-          <button onClick={() => setActiveTab('joueurs')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab==='joueurs'?'text-white bg-arena-secondary/10 border-b-2 border-arena-secondary':'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>
+          <button onClick={() => setActiveTab('joueurs')} className={`flex-1 p-4 text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'joueurs' ? 'text-white bg-arena-secondary/10 border-b-2 border-arena-secondary' : 'text-arena-textMuted hover:text-white hover:bg-white/5'}`}>
             {t('admin_tab_players')} <span className="ml-1 opacity-50">({users.length})</span>
           </button>
         </div>
-        
+
         <div className="p-4 flex-1 overflow-y-auto">
           {activeTab === 'reponses' ? (
             <div className="flex flex-col h-full">
@@ -182,7 +256,6 @@ const AdminPanel = ({ currentHour }) => {
                 {QUESTIONS_DU_JOUR.map(q => {
                   const isActive = selectedQId === q.id;
                   const isLive = currentHour >= q.start && currentHour < q.end;
-                  
                   return (
                     <button
                       key={q.id}
@@ -216,12 +289,12 @@ const AdminPanel = ({ currentHour }) => {
         </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <div className="flex-1 p-4 lg:p-8 h-screen overflow-y-auto w-full">
+
+        {/* ── Onglet Réponses ── */}
         {activeTab === 'reponses' && activeQuestionDetails && (
           <div className="max-w-6xl mx-auto space-y-6">
-            
-            {/* Header Status */}
             <div className="glass-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <div className="flex items-center gap-3 mb-2">
@@ -238,7 +311,6 @@ const AdminPanel = ({ currentHour }) => {
                 </div>
                 <p className="text-arena-textMuted text-sm font-mono">{activeQuestionDetails.displayCategory} — {activeQuestionDetails.difficulty}</p>
               </div>
-              
               <div className="flex gap-2 w-full md:w-auto">
                 <button
                   onClick={() => setShowAnswers(!showAnswers)}
@@ -257,15 +329,13 @@ const AdminPanel = ({ currentHour }) => {
               </div>
             </div>
 
-            {/* Content & Answer Display */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1 space-y-6">
                 <div className="glass-card p-6 rounded-2xl">
                   <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-3">{t('admin_quest_subject')}</p>
                   <p className="text-lg font-medium leading-relaxed mb-6">{activeQuestionDetails.displayText}</p>
-                  
                   <div className="border-t border-arena-border pt-4">
-                    <button 
+                    <button
                       onClick={() => setRevealCorrect(!revealCorrect)}
                       className="text-xs uppercase font-bold text-arena-gold hover:text-white transition-colors tracking-widest flex items-center gap-2 mb-2"
                     >
@@ -279,7 +349,6 @@ const AdminPanel = ({ currentHour }) => {
                     )}
                   </div>
                 </div>
-
                 <div className="glass-card p-6 rounded-2xl flex items-center justify-between">
                   <div>
                     <p className="text-xs uppercase font-bold text-arena-textMuted tracking-widest mb-1">{t('admin_participations')}</p>
@@ -297,7 +366,6 @@ const AdminPanel = ({ currentHour }) => {
                       {t('admin_live_feed')}
                     </h3>
                   </div>
-                  
                   <div className="flex-1 overflow-auto p-0">
                     {currentQAnswers.length === 0 ? (
                       <div className="h-full flex flex-col items-center justify-center text-arena-textMuted p-8">
@@ -308,8 +376,8 @@ const AdminPanel = ({ currentHour }) => {
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-[#03040E]/80 text-xs uppercase tracking-widest text-arena-textMuted border-b border-arena-border">
-                            <th className="p-4 font-bold max-w-[150px] truncate">{t('admin_col_time')}</th>
-                            <th className="p-4 font-bold max-w-[200px] truncate">{t('admin_col_player')}</th>
+                            <th className="p-4 font-bold">{t('admin_col_time')}</th>
+                            <th className="p-4 font-bold">{t('admin_col_player')}</th>
                             <th className="p-4 font-bold">{t('admin_col_answer')}</th>
                           </tr>
                         </thead>
@@ -319,9 +387,7 @@ const AdminPanel = ({ currentHour }) => {
                               <td className="p-4 text-sm font-mono text-arena-textMuted whitespace-nowrap">
                                 {new Date(ans.timestamp).toLocaleTimeString('fr-FR')}
                               </td>
-                              <td className="p-4 text-sm font-bold text-white max-w-[200px] truncate" title={ans.joueur}>
-                                {ans.joueur}
-                              </td>
+                              <td className="p-4 text-sm font-bold text-white max-w-[200px] truncate">{ans.joueur}</td>
                               <td className="p-4 text-sm">
                                 {showAnswers ? (
                                   <span className="text-arena-secondary font-mono">{ans.reponse}</span>
@@ -343,33 +409,93 @@ const AdminPanel = ({ currentHour }) => {
           </div>
         )}
 
-        {/* Joueurs Tab View */}
+        {/* ── Onglet Joueurs ── */}
         {activeTab === 'joueurs' && (
           <div className="max-w-6xl mx-auto space-y-6 h-full flex flex-col">
+
+            {/* Message de confirmation */}
+            {deleteMsg && (
+              <div className="bg-arena-success/10 border border-arena-success/40 text-arena-success px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" /> {deleteMsg}
+              </div>
+            )}
+
+            {/* Header avec boutons */}
             <div className="glass-card p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
               <div>
                 <h2 className="text-2xl font-display font-bold uppercase tracking-wider text-white">{t('admin_db_title')}</h2>
                 <p className="text-arena-textMuted text-sm font-mono mt-1">{t('admin_db_desc')}</p>
               </div>
-              <button
-                onClick={exportUsersToCSV}
-                disabled={users.length === 0}
-                className="flex items-center justify-center gap-2 bg-arena-secondary hover:bg-cyan-500 disabled:bg-arena-border disabled:text-arena-textMuted disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest"
-              >
-                <Download className="w-4 h-4" /> {t('admin_db_export')}
-              </button>
+              <div className="flex gap-3 w-full md:w-auto flex-wrap">
+                {/* Bouton détecter doublons */}
+                <button
+                  onClick={detectDuplicates}
+                  disabled={scanLoading || users.length === 0}
+                  className="flex items-center justify-center gap-2 bg-arena-gold/10 hover:bg-arena-gold/20 border border-arena-gold/40 disabled:opacity-40 disabled:cursor-not-allowed text-arena-gold px-5 py-3 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  {scanLoading ? 'Scan...' : 'Détecter doublons'}
+                </button>
+                {/* Bouton export CSV */}
+                <button
+                  onClick={exportUsersToCSV}
+                  disabled={users.length === 0}
+                  className="flex items-center justify-center gap-2 bg-arena-secondary hover:bg-cyan-500 disabled:bg-arena-border disabled:text-arena-textMuted disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest"
+                >
+                  <Download className="w-4 h-4" /> {t('admin_db_export')}
+                </button>
+              </div>
             </div>
 
+            {/* Résultat du scan doublons */}
+            {duplicateScanDone && (
+              <div className={`rounded-2xl p-5 border ${duplicatesFound.length > 0 ? 'bg-arena-danger/5 border-arena-danger/40' : 'bg-arena-success/5 border-arena-success/40'}`}>
+                {duplicatesFound.length === 0 ? (
+                  <div className="flex items-center gap-3 text-arena-success">
+                    <ShieldCheck className="w-5 h-5" />
+                    <span className="font-bold text-sm uppercase tracking-widest">Aucun doublon détecté — base de données propre !</span>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3 text-arena-danger">
+                        <AlertTriangle className="w-5 h-5" />
+                        <span className="font-bold text-sm uppercase tracking-widest">
+                          {duplicatesFound.length} doublon(s) détecté(s)
+                        </span>
+                      </div>
+                      <button
+                        onClick={removeAllDuplicates}
+                        className="bg-arena-danger hover:bg-rose-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2"
+                      >
+                        <Trash2 className="w-3 h-3" /> Supprimer tous les doublons
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {duplicatesFound.map(d => (
+                        <div key={d.id} className="bg-arena-danger/10 border border-arena-danger/20 rounded-lg px-4 py-2 text-sm flex items-center justify-between">
+                          <span className="text-white font-bold">{d.name}</span>
+                          <span className="text-arena-textMuted font-mono text-xs">{d.phone} · {d.email}</span>
+                          <span className="text-arena-danger text-xs uppercase tracking-widest">Doublon</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Table joueurs */}
             <div className="glass-card rounded-2xl overflow-hidden flex-1 flex flex-col min-h-[500px]">
               <div className="flex-1 overflow-auto p-0 border border-arena-border rounded-b-2xl">
                 {users.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-arena-textMuted p-12">
-                     <Users className="w-16 h-16 opacity-20 mb-4" />
-                     <p className="uppercase tracking-widest text-sm font-bold">{t('admin_db_empty')}</p>
-                     <p className="text-xs mt-2 opacity-50">{t('admin_db_empty_desc')}</p>
+                    <Users className="w-16 h-16 opacity-20 mb-4" />
+                    <p className="uppercase tracking-widest text-sm font-bold">{t('admin_db_empty')}</p>
+                    <p className="text-xs mt-2 opacity-50">{t('admin_db_empty_desc')}</p>
                   </div>
                 ) : (
-                  <table className="w-full text-left border-collapse min-w-[800px]">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
                     <thead>
                       <tr className="bg-[#03040E]/80 text-xs uppercase tracking-widest text-arena-textMuted border-b border-arena-border sticky top-0 z-10">
                         <th className="p-4 font-bold whitespace-nowrap">{t('admin_col_date_reg')}</th>
@@ -377,19 +503,29 @@ const AdminPanel = ({ currentHour }) => {
                         <th className="p-4 font-bold">{t('admin_col_pseudo')}</th>
                         <th className="p-4 font-bold">{t('admin_col_whatsapp')}</th>
                         <th className="p-4 font-bold">{t('admin_col_city')}</th>
+                        <th className="p-4 font-bold text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {users.map(u => (
                         <tr key={u.id} className="border-b border-arena-border/50 hover:bg-white/5 transition-colors">
                           <td className="p-4 text-sm font-mono text-arena-textMuted whitespace-nowrap">
-                            {new Date(u.registeredAt).toLocaleTimeString('fr-FR', { timeZone: 'Africa/Douala', hour:'2-digit', minute:'2-digit' })}
-                            <br/><span className="text-[10px] opacity-50">{new Date(u.registeredAt).toLocaleDateString('fr-FR', { timeZone: 'Africa/Douala' })}</span>
+                            {new Date(u.registeredAt).toLocaleTimeString('fr-FR', { timeZone: 'Africa/Douala', hour: '2-digit', minute: '2-digit' })}
+                            <br /><span className="text-[10px] opacity-50">{new Date(u.registeredAt).toLocaleDateString('fr-FR', { timeZone: 'Africa/Douala' })}</span>
                           </td>
                           <td className="p-4 text-sm font-bold text-white uppercase">{u.name}</td>
                           <td className="p-4 text-sm text-arena-secondary">{u.pseudo}</td>
                           <td className="p-4 text-sm text-arena-primary font-mono">{u.phone}</td>
                           <td className="p-4 text-sm text-arena-textMuted capitalize">{u.city}</td>
+                          <td className="p-4 text-center">
+                            <button
+                              onClick={() => setDeleteConfirm(u)}
+                              className="p-2 rounded-lg text-arena-textMuted hover:text-arena-danger hover:bg-arena-danger/10 transition-colors"
+                              title="Supprimer ce combattant"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
