@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Clock, CheckCircle } from 'lucide-react';
+import { Lock, Clock, CheckCircle, Home } from 'lucide-react';
 import { t } from '../i18n';
 import Countdown from './Countdown';
 import { QUESTIONS_DU_JOUR } from '../questions';
 
-const ClosedScreen = ({ currentHour, nextQuestion }) => {
+const ClosedScreen = ({ currentHour, nextQuestion, onBack }) => {
   const [msgIndex, setMsgIndex] = useState(0);
   const messages = t('mystery_messages');
 
@@ -17,7 +17,7 @@ const ClosedScreen = ({ currentHour, nextQuestion }) => {
   }, [messages.length]);
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -20, scale: 0.98 }}
@@ -27,14 +27,14 @@ const ClosedScreen = ({ currentHour, nextQuestion }) => {
         <div className="w-16 h-16 rounded-full bg-arena-border/50 flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
           <Lock className="w-8 h-8 text-arena-textMuted" />
         </div>
-        
+
         <h2 className="font-display text-2xl font-bold mb-2 text-arena-textMain uppercase tracking-wide">
           {t('arena_closed_title')}
         </h2>
-        
+
         <div className="h-12 mb-6">
           <AnimatePresence mode="wait">
-            <motion.p 
+            <motion.p
               key={msgIndex}
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -66,7 +66,7 @@ const ClosedScreen = ({ currentHour, nextQuestion }) => {
           <div className="flex flex-col gap-3 w-full">
             {QUESTIONS_DU_JOUR.map((q) => {
               const status = currentHour >= q.end ? 'past' : (currentHour >= q.start && currentHour < q.end ? 'active' : 'upcoming');
-              
+
               let statusText = '';
               let Icon = null;
               let colors = '';
@@ -89,7 +89,7 @@ const ClosedScreen = ({ currentHour, nextQuestion }) => {
                 <div key={q.id} className={`flex items-center justify-between p-3 rounded-lg border ${colors}`}>
                   <div className="flex items-center gap-3">
                     <Icon className="w-4 h-4 opacity-80" />
-                    <span className="font-mono text-sm opacity-90">{String(q.start).padStart(2,'0')}h — {String(q.end).padStart(2,'0')}h</span>
+                    <span className="font-mono text-sm opacity-90">{String(q.start).padStart(2, '0')}h — {String(q.end).padStart(2, '0')}h</span>
                   </div>
                   <span className="text-xs font-bold uppercase tracking-wider">{statusText}</span>
                 </div>
@@ -97,6 +97,17 @@ const ClosedScreen = ({ currentHour, nextQuestion }) => {
             })}
           </div>
         </div>
+
+        {/* Bouton retour */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="mt-8 flex items-center gap-2 text-xs text-arena-textMuted hover:text-white transition-colors uppercase tracking-widest font-bold"
+          >
+            <Home className="w-4 h-4" />
+            Retour à l'accueil
+          </button>
+        )}
       </div>
     </motion.div>
   );

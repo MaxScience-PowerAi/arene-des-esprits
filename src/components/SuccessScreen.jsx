@@ -1,18 +1,17 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { ShieldCheck, ArrowRight } from 'lucide-react';
+import { ShieldCheck, ArrowRight, Home } from 'lucide-react';
 import { t } from '../i18n';
 import Countdown from './Countdown';
 
-const SuccessScreen = ({ nextQuestion }) => {
+const SuccessScreen = ({ nextQuestion, onBack }) => {
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       className="flex flex-col items-center justify-center w-full max-w-md mx-auto min-h-[60vh] px-4"
     >
       <div className="glass-card w-full p-8 rounded-2xl flex flex-col items-center text-center relative overflow-hidden">
-        {/* Glow background effect */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-arena-success/20 blur-[50px] rounded-full pointer-events-none" />
 
         <motion.div
@@ -23,11 +22,11 @@ const SuccessScreen = ({ nextQuestion }) => {
         >
           <ShieldCheck className="w-10 h-10 text-arena-success" />
         </motion.div>
-        
+
         <h2 className="font-display text-3xl font-bold mb-2 text-white uppercase tracking-wider">
           {t('success_title')}
         </h2>
-        
+
         <div className="mb-8">
           <p className="text-arena-textMain font-medium mb-1">{t('success_body')}</p>
           <p className="text-arena-textMuted text-sm">{t('success_sub')}</p>
@@ -51,6 +50,17 @@ const SuccessScreen = ({ nextQuestion }) => {
               {t('next_riddle_end')} <ArrowRight className="w-4 h-4" />
             </p>
           </div>
+        )}
+
+        {/* Bouton retour */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="mt-6 flex items-center gap-2 text-xs text-arena-textMuted hover:text-white transition-colors uppercase tracking-widest font-bold"
+          >
+            <Home className="w-4 h-4" />
+            Retour à l'accueil
+          </button>
         )}
       </div>
     </motion.div>

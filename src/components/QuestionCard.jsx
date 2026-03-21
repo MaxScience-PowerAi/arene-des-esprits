@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, EyeOff, ShieldAlert, Sparkles, Send, HelpCircle } from 'lucide-react';
+import { Eye, EyeOff, ShieldAlert, Sparkles, Send, HelpCircle, Home } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { getLocalizedQuestionData } from '../questions';
 import { t } from '../i18n';
 
-const QuestionCard = ({ user, question, onSubmited }) => {
-  const [pseudo, setPseudo] = useState('');
+const LOCAL_KEY = 'arene_player_pseudo';
+
+const QuestionCard = ({ user, question, onSubmited, onBack }) => {
+  // Pré-rempli avec le pseudo sauvegardé
+  const savedPseudo = localStorage.getItem(LOCAL_KEY) || '';
+  const [pseudo, setPseudo] = useState(savedPseudo);
   const [answer, setAnswer] = useState('');
   const [showAnswer, setShowAnswer] = useState(false);
   const [showHint, setShowHint] = useState(false);
@@ -19,7 +23,7 @@ const QuestionCard = ({ user, question, onSubmited }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!pseudo.trim() || !answer.trim() || !user) return;
-    
+
     setLoading(true);
     setError('');
 
@@ -59,7 +63,7 @@ const QuestionCard = ({ user, question, onSubmited }) => {
   const diffColor = difficultyColors[q.displayDifficulty || q.difficulty] || 'text-arena-primary border-arena-primary/30 bg-arena-primary/10';
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
@@ -67,9 +71,8 @@ const QuestionCard = ({ user, question, onSubmited }) => {
       className="w-full max-w-lg mx-auto p-4"
     >
       <div className="glass-card rounded-2xl overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.8)] relative">
-        {/* Dynamic top bar color based on difficulty */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-arena-primary to-arena-secondary opacity-80" />
-        
+
         <div className="p-6 sm:p-8">
           {/* Header Badges */}
           <div className="flex justify-between items-center mb-6">
@@ -89,7 +92,6 @@ const QuestionCard = ({ user, question, onSubmited }) => {
 
           {/* Question Text */}
           <div className="relative group mb-8">
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-shimmer" />
             <h3 className="font-display text-xl sm:text-2xl font-bold text-arena-textMain leading-snug">
               {q.displayText}
             </h3>
@@ -97,7 +99,7 @@ const QuestionCard = ({ user, question, onSubmited }) => {
 
           {/* Hint Toggle */}
           <div className="mb-8">
-            <button 
+            <button
               type="button"
               onClick={() => setShowHint(!showHint)}
               className="flex items-center gap-2 text-sm text-arena-textMuted hover:text-arena-secondary transition-colors group"
@@ -107,7 +109,7 @@ const QuestionCard = ({ user, question, onSubmited }) => {
             </button>
             <AnimatePresence>
               {showHint && (
-                <motion.div 
+                <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
@@ -122,10 +124,13 @@ const QuestionCard = ({ user, question, onSubmited }) => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Pseudo Input */}
+            {/* Pseudo Input — pré-rempli et verrouillé si connecté */}
             <div className="space-y-1">
-              <label className="text-xs font-bold uppercase tracking-widest text-arena-textMuted ml-1">
+              <label className="text-xs font-bold uppercase tracking-widest text-arena-textMuted ml-1 flex items-center gap-2">
                 {t('your_identity')}
+                {savedPseudo && (
+                  <span className="text-arena-success text-[10px] normal-case tracking-normal">✓ connecté</span>
+                )}
               </label>
               <input
                 type="text"
@@ -133,7 +138,8 @@ const QuestionCard = ({ user, question, onSubmited }) => {
                 value={pseudo}
                 onChange={(e) => setPseudo(e.target.value)}
                 placeholder={t('pseudo_placeholder')}
-                className="w-full bg-[#03040E]/80 border border-arena-border rounded-xl px-4 py-3 text-base text-arena-textMain placeholder:text-arena-textMuted/50 focus:outline-none focus:border-arena-primary focus:ring-1 focus:ring-arena-primary transition-all font-body"
+                readOnly={!!savedPseudo}
+                className={`w-full bg-[#03040E]/80 border border-arena-border rounded-xl px-4 py-3 text-base text-arena-textMain placeholder:text-arena-textMuted/50 focus:outline-none focus:border-arena-primary focus:ring-1 focus:ring-arena-primary transition-all font-body ${savedPseudo ? 'opacity-70 cursor-not-allowed' : ''}`}
               />
             </div>
 
@@ -194,6 +200,18 @@ const QuestionCard = ({ user, question, onSubmited }) => {
                 )}
               </div>
             </button>
+
+            {/* Bouton retour */}
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="w-full flex items-center justify-center gap-2 text-xs text-arena-textMuted hover:text-white transition-colors uppercase tracking-widest font-bold py-2"
+              >
+                <Home className="w-4 h-4" />
+                Retour à l'accueil
+              </button>
+            )}
           </form>
         </div>
       </div>
