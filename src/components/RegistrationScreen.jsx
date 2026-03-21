@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShieldAlert, Send } from 'lucide-react';
+import { ShieldAlert, Send, ArrowLeft } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { t } from '../i18n';
 
-const RegistrationScreen = ({ user, onRegistered }) => {
+const RegistrationScreen = ({ user, onRegistered, onBack }) => {
   const [formData, setFormData] = useState({
     name: '',
     pseudo: '',
@@ -52,8 +52,17 @@ const RegistrationScreen = ({ user, onRegistered }) => {
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className="w-full max-w-lg mx-auto p-4 z-10"
     >
-      <div className="glass-card rounded-[2rem] p-6 sm:p-8 relative overflow-hidden shadow-[0_0_50px_rgba(99,102,241,0.15)]">
+      <div className="glass-card rounded-[2rem] p-6 sm:p-8 relative overflow-hidden shadow-[0_0_50px_rgba(99,102,241,0.15)] mt-12 md:mt-24">
         {/* Decorative elements */}
+        {onBack && !success && (
+          <button 
+            onClick={onBack}
+            className="absolute top-6 left-6 z-20 text-arena-textMuted hover:text-white transition-colors"
+            title="Retour à l'accueil"
+          >
+            <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+          </button>
+        )}
         <div className="absolute top-0 right-0 w-32 h-32 bg-arena-primary/20 rounded-full blur-[50px] -translate-y-1/2 translate-x-1/2 pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-arena-secondary/20 rounded-full blur-[50px] translate-y-1/2 -translate-x-1/2 pointer-events-none" />
 

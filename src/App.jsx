@@ -132,7 +132,7 @@ function App() {
   if (loading) {
     DisplayComponent = <LoadingScreen />;
   } else if (!hasRegistered) {
-    DisplayComponent = <RegistrationScreen user={user} onRegistered={() => setHasRegistered(true)} />;
+    DisplayComponent = <RegistrationScreen user={user} onRegistered={() => setHasRegistered(true)} onBack={() => setHasEntered(false)} />;
   } else if (!activeQuestion) {
     DisplayComponent = <ClosedScreen currentHour={currentHour} nextQuestion={nextQuestion} />;
   } else if (hasAnsweredCurrent) {
