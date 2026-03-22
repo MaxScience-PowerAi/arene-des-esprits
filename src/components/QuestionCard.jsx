@@ -8,8 +8,13 @@ import { t } from '../i18n';
 
 const LOCAL_KEY = 'arene_player_pseudo';
 
+// ── Clé de date locale (Africa/Douala) ────────────────────────────────────
+// Ex : "22-03-2026" → chaque journée = nouvelle collection Firestore vide
+// Les réponses de la veille disparaissent automatiquement sans rien faire
+const getTodayKey = () =>
+  new Date().toLocaleDateString('fr-FR', { timeZone: 'Africa/Douala' }).replace(/\//g, '-');
+
 const QuestionCard = ({ user, question, onSubmited, onBack }) => {
-  // Pré-rempli avec le pseudo sauvegardé
   const savedPseudo = localStorage.getItem(LOCAL_KEY) || '';
   const [pseudo, setPseudo] = useState(savedPseudo);
   const [answer, setAnswer] = useState('');
@@ -28,15 +33,24 @@ const QuestionCard = ({ user, question, onSubmited, onBack }) => {
     setError('');
 
     try {
+      const todayKey = getTodayKey();
+
       const data = {
         uid: user.uid,
         joueur: pseudo.trim(),
         reponse: answer.trim(),
         questionId: q.id,
         timestamp: Date.now(),
+        dateKey: todayKey,
       };
 
-      const ref = doc(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${q.id}`, user.uid);
+      // ✅ Collection avec date du jour → reset automatique chaque matin
+      // Ex : reponses_q1_22-03-2026  (hier c'était reponses_q1_21-03-2026)
+      const ref = doc(
+        db,
+        `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${q.id}_${todayKey}`,
+        user.uid
+      );
       await setDoc(ref, data);
       onSubmited();
     } catch (err) {
@@ -124,7 +138,7 @@ const QuestionCard = ({ user, question, onSubmited, onBack }) => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Pseudo Input — pré-rempli et verrouillé si connecté */}
+            {/* Pseudo Input */}
             <div className="space-y-1">
               <label className="text-xs font-bold uppercase tracking-widest text-arena-textMuted ml-1 flex items-center gap-2">
                 {t('your_identity')}

@@ -5,6 +5,11 @@ import { QUESTIONS_DU_JOUR, getLocalizedQuestionData } from '../questions';
 import { Lock, Download, Eye, EyeOff, CheckCircle2, LayoutDashboard, LogOut, Clock, Users, Trash2, AlertTriangle, ShieldCheck, FileText } from 'lucide-react';
 import { t } from '../i18n';
 
+// ── Clé de date locale (Africa/Douala) ────────────────────────────────────
+// Ex : "22-03-2026" → chaque journée = nouvelle collection Firestore vide
+const getTodayKey = () =>
+  new Date().toLocaleDateString('fr-FR', { timeZone: 'Africa/Douala' }).replace(/\//g, '-');
+
 const AdminPanel = ({ currentHour }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
@@ -65,11 +70,13 @@ const AdminPanel = ({ currentHour }) => {
     return () => unsub();
   }, [isAuthenticated]);
 
-  // Charge TOUTES les 5 questions en meme temps
+  // ✅ FIX 1 — Collection avec date du jour → reset automatique chaque nouvelle journée
+  // Ex : reponses_q1_22-03-2026  (hier = reponses_q1_21-03-2026, invisible aujourd'hui)
   useEffect(() => {
     if (!isAuthenticated) return;
+    const todayKey = getTodayKey();
     const unsubs = QUESTIONS_DU_JOUR.map(q => {
-      const qRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${q.id}`);
+      const qRef = collection(db, `artifacts/${import.meta.env.VITE_ARENE_APP_ID}/public/data/reponses_q${q.id}_${todayKey}`);
       const qSnap = query(qRef, orderBy('timestamp', 'desc'));
       return onSnapshot(qSnap, (snapshot) => {
         const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -150,7 +157,6 @@ const AdminPanel = ({ currentHour }) => {
       const hline = (y, c = [30, 41, 70], lw = 0.3) => { S(c); pdf.setLineWidth(lw); pdf.line(ML, y, PW - MR, y); };
       const diffC = (d) => ({ Facile: C.green, Moyen: C.cyan, Difficile: C.gold, Expert: C.red, Boss: [220, 38, 38] }[d] || C.muted);
 
-      // Boite avec texte qui wrappe automatiquement — retourne la hauteur utilisee
       const textBox = (text, x, y, maxW, bgColor, strokeColor, accentColor, opts = {}) => {
         const { fontSize = 9, textColor = C.white, isBold = false, padding = 5, lineH = 5.5 } = opts;
         if (isBold) B(fontSize); else N(fontSize);
@@ -188,7 +194,6 @@ const AdminPanel = ({ currentHour }) => {
       pdf.text(today.charAt(0).toUpperCase() + today.slice(1), PW / 2, y, { align: 'center' });
       y += 16;
 
-      // 3 cartes stats
       const statW = (CW - 8) / 3;
       [[C.red, '5', 'ENIGMES'], [C.cyan, String(totalParts), 'PARTICIPATIONS'], [C.gold, String(users.length), 'COMBATTANTS']].forEach(([c, v, l], i) => {
         const sx = ML + i * (statW + 4);
@@ -198,7 +203,6 @@ const AdminPanel = ({ currentHour }) => {
       });
       y += 34; hline(y); y += 8;
 
-      // Apercu questions — colonne reponse limitee et wrappee
       T(C.gold); B(9); pdf.text('APERCU DES QUESTIONS DU JOUR', ML, y); y += 7;
 
       QUESTIONS_DU_JOUR.forEach((q, qi) => {
@@ -214,7 +218,6 @@ const AdminPanel = ({ currentHour }) => {
         T(C.dark); B(6); pdf.text(qd.difficulty.toUpperCase().substring(0, 8), ML + 94, y + 8, { align: 'center' });
         T(C.green); B(10); pdf.text(String(nbAns), ML + 117, y + 8, { align: 'center' });
         T(C.muted); N(6); pdf.text('rep.', ML + 117, y + 11.5, { align: 'center' });
-        // Reponse tronquee proprement — max 25 chars pour ne pas deborder
         const shortAns = pdf.splitTextToSize('→ ' + (qd.displayAnswer || ''), CW - 132);
         T(C.cyan); N(6.5); pdf.text(shortAns[0] || '', ML + 132, y + 8.5);
         y += rh + 2;
@@ -247,17 +250,14 @@ const AdminPanel = ({ currentHour }) => {
         pdf.text(`Participations : ${answers.length}`, ML + 110, py + 6);
         py += 14;
 
-        // Enonce — texte wrappe automatiquement
         T(C.cyan); B(8); pdf.text('ENONCE', ML, py); py += 5;
         const qH = textBox(qd.displayText, ML, py, CW, C.card, C.cyan, C.cyan, { fontSize: 9, textColor: C.white, lineH: 5.5, padding: 5 });
         py += qH + 7;
 
-        // Reponse correcte — texte wrappe automatiquement
         T(C.green); B(8); pdf.text('REPONSE CORRECTE', ML, py); py += 5;
         const aH = textBox(qd.displayAnswer, ML, py, CW, [8, 35, 25], C.green, C.green, { fontSize: 9, textColor: C.green, isBold: true, lineH: 5.5, padding: 5 });
         py += aH + 8;
 
-        // Tableau reponses
         if (answers.length === 0) {
           box(ML, py, CW, 12, 3, C.card2, C.border, 0.3);
           T(C.muted); I(8); pdf.text('Aucune participation enregistree.', PW / 2, py + 8, { align: 'center' });
@@ -273,7 +273,6 @@ const AdminPanel = ({ currentHour }) => {
           for (let ai = 0; ai < answers.length; ai++) {
             const ans = answers[ai];
             N(7);
-            // Calcule la hauteur de ligne selon la longueur de la reponse
             const repLines = pdf.splitTextToSize(String(ans.reponse || '—').replace(/\n/g, ' '), CW - 90 - 6);
             const rh = Math.max(7.5, repLines.length * 5 + 3);
 
@@ -570,7 +569,10 @@ const AdminPanel = ({ currentHour }) => {
                         <tbody>
                           {currentQAnswers.map(ans => (
                             <tr key={ans.id} className="border-b border-arena-border/50 hover:bg-white/5 transition-colors">
-                              <td className="p-4 text-sm font-mono text-arena-textMuted whitespace-nowrap">{new Date(ans.timestamp).toLocaleTimeString('fr-FR')}</td>
+                              {/* ✅ FIX 2 — Heure avec timezone Africa/Douala */}
+                              <td className="p-4 text-sm font-mono text-arena-textMuted whitespace-nowrap">
+                                {new Date(ans.timestamp).toLocaleTimeString('fr-FR', { timeZone: 'Africa/Douala', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </td>
                               <td className="p-4 text-sm font-bold text-white max-w-[200px] truncate">{ans.joueur}</td>
                               <td className="p-4 text-sm">
                                 {showAnswers ? <span className="text-arena-secondary font-mono">{ans.reponse}</span>
